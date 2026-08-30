@@ -20,6 +20,7 @@ Public API:
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
 import re
 import threading
@@ -297,6 +298,10 @@ def recent_8ks_for_ticker(ticker: str, limit: int = 5) -> list[dict]:
 CONCEPT_URL = "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik10}/{taxonomy}/{tag}.json"
 
 
+def _date(s: str) -> _dt.date:
+    return _dt.date.fromisoformat(str(s)[:10])
+
+
 def company_concept(cik: str, tag: str, taxonomy: str = "us-gaap") -> dict:
     """Raw XBRL companyconcept payload. taxonomy is 'dei' or 'us-gaap'."""
     cik10 = str(cik).strip().upper().replace("CIK", "").zfill(10)
@@ -412,29 +417,39 @@ def annual_revenue(ticker_or_cik: str) -> dict:
         "RevenueFromContractWithCustomerIncludingAssessedTax",
         "SalesRevenueNet",
     )
+    # Issuers switch tags between years (NVDA dropped
+    # RevenueFromContractWithCustomerExcludingAssessedTax after FY2022), so gather
+    # candidates across ALL tags and take the globally newest - never first-tag-wins.
+    best: tuple[str, dict, str] | None = None
     for tag in tags:
         try:
             data = company_concept(cik, tag, taxonomy="us-gaap")
         except Exception:
             continue
-        rows = [
-            r
-            for r in (data.get("units") or {}).get("USD", [])
-            if r.get("form") == "10-K" and r.get("fp") == "FY" and r.get("start") and r.get("val")
-        ]
-        if not rows:
-            continue
-        fact = max(rows, key=lambda r: str(r.get("end") or ""))
-        return {
-            "cik": cik,
-            "tag": tag,
-            "revenue_usd": fact["val"],
-            "period": f"{fact.get('start')}..{fact.get('end')}",
-            "form": fact.get("form"),
-            "accession": fact.get("accn"),
-            "source_url": data["_source_url"],
-        }
-    raise SECError(f"No annual revenue facts found for CIK {cik}")
+        for r in (data.get("units") or {}).get("USD", []):
+            if not (r.get("start") and r.get("end") and r.get("val") is not None):
+                continue
+            if r.get("form") != "10-K" or r.get("fp") != "FY":
+                continue
+            # Annual periods only - 10-Ks also carry quarterly facts.
+            days = (_date(r["end"]) - _date(r["start"])).days
+            if not 340 <= days <= 400:
+                continue
+            if best is None or str(r["end"]) > str(best[1]["end"]):
+                best = (tag, r, data["_source_url"])
+    if best is None:
+        raise SECError(f"No annual revenue facts found for CIK {cik}")
+    tag, fact, src = best
+    return {
+        "cik": cik,
+        "tag": tag,
+        "revenue_usd": fact["val"],
+        "period": f"{fact.get('start')}..{fact.get('end')}",
+        "fiscal_year": fact.get("fy"),
+        "form": fact.get("form"),
+        "accession": fact.get("accn"),
+        "source_url": src,
+    }
 
 
 if __name__ == "__main__":  # pragma: no cover - smoke test

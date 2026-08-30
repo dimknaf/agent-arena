@@ -1,22 +1,70 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PortfolioImpactAnalysis",
+  "description": "Forward-looking FUNDAMENTAL value impact of a news event on a portfolio. Each position carries an explicit value chain (revenue at risk -> earnings -> capitalised value -> share of market cap) and a 3x3 grid of horizon (short/medium/long term) by variant (low/base/high). EDITOR WARNING: this file is passed to `codex --output-schema`, which feeds it to OpenAI structured outputs in STRICT mode. Strict mode requires EVERY object node to set additionalProperties:false AND to list EVERY key of `properties` in `required`. There is no such thing as an optional field here - a 400 invalid_json_schema kills the run in about 4 seconds. Express 'optional' as a required key with a permissive type (empty string allowed) and enforce the real rule in verify.py instead.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "news_id", "headline", "thesis", "methodology", "confidence",
+    "news_id", "headline", "published_at", "thesis", "methodology", "confidence",
     "mechanism", "positions",
-    "portfolio_value_before_usd", "portfolio_impact_pct", "portfolio_impact_usd",
+    "portfolio_value_before_usd", "horizons",
     "citations", "budget"
   ],
+  "definitions": {
+    "variant_band": {
+      "description": "Scenario band. Must satisfy low <= base <= high (enforced by V5).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "base", "high"],
+      "properties": {
+        "low": { "type": "number" },
+        "base": { "type": "number" },
+        "high": { "type": "number" }
+      }
+    },
+    "pct_band": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "base", "high"],
+      "properties": {
+        "low": { "type": "number", "minimum": -60, "maximum": 60 },
+        "base": { "type": "number", "minimum": -60, "maximum": 60 },
+        "high": { "type": "number", "minimum": -60, "maximum": 60 }
+      }
+    },
+    "position_horizon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["impact_pct", "impact_usd", "method", "note"],
+      "properties": {
+        "impact_pct": { "$ref": "#/definitions/pct_band" },
+        "impact_usd": { "$ref": "#/definitions/variant_band" },
+        "method": { "type": "string", "minLength": 3, "maxLength": 60 },
+        "note": { "type": "string", "minLength": 10, "maxLength": 300 }
+      }
+    },
+    "portfolio_horizon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["impact_pct", "impact_usd"],
+      "properties": {
+        "impact_pct": { "$ref": "#/definitions/pct_band" },
+        "impact_usd": { "$ref": "#/definitions/variant_band" }
+      }
+    }
+  },
   "properties": {
     "news_id": { "type": "string", "minLength": 1 },
     "headline": { "type": "string", "minLength": 5, "maxLength": 300 },
-    "published_at": { "type": "string" },
+    "published_at": {
+      "description": "ISO-8601 timestamp of the news event. Required by strict mode; emit \"\" if genuinely unknown.",
+      "type": "string"
+    },
     "thesis": { "type": "string", "minLength": 40, "maxLength": 600 },
     "methodology": {
       "type": "string",
-      "enum": ["beta_weighted_shock", "sector_exposure_map", "correlation_contagion"]
+      "enum": ["fundamental_value_impact", "market_cap_value_impact",
+               "earnings_revision", "discounted_scenario"]
     },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
 
@@ -27,8 +75,8 @@
         "additionalProperties": false,
         "required": ["from", "to", "effect"],
         "properties": {
-          "from": { "type": "string", "minLength": 2 },
-          "to": { "type": "string", "minLength": 1 },
+          "from": { "type": "string", "minLength": 2, "maxLength": 22 },
+          "to": { "type": "string", "minLength": 1, "maxLength": 22 },
           "effect": { "type": "string", "minLength": 3 }
         }
       }
@@ -40,35 +88,110 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["ticker", "sector", "weight_pct", "value_before_usd",
-                     "impact_pct", "impact_usd", "rationale", "confidence"],
+                     "rationale", "confidence",
+                     "revenue_line_usd", "affected_fraction", "duration_months",
+                     "permanent_share", "margin", "earnings_multiple",
+                     "revenue_at_stake_usd", "profit_at_stake_usd",
+                     "value_at_stake_usd", "market_cap_usd",
+                     "value_basis", "variant_basis", "horizons"],
         "properties": {
           "ticker": { "type": "string", "pattern": "^[A-Z][A-Z.\\-]{0,5}$" },
           "sector": { "type": "string", "minLength": 2 },
           "weight_pct": { "type": "number", "minimum": 0, "maximum": 100 },
           "value_before_usd": { "type": "number", "minimum": 0 },
-          "impact_pct": { "type": "number", "minimum": -25, "maximum": 25 },
-          "impact_usd": { "type": "number" },
           "rationale": { "type": "string", "minLength": 10, "maxLength": 400 },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+
+          "revenue_line_usd": {
+            "description": "Annual USD revenue of the specific line exposed to the event.",
+            "type": "number", "minimum": 0
+          },
+          "affected_fraction": {
+            "description": "Fraction of that revenue line actually at risk, 0..1.",
+            "type": "number", "minimum": 0, "maximum": 1
+          },
+          "duration_months": {
+            "description": "Months the disruption suppresses that revenue.",
+            "type": "number", "minimum": 0, "maximum": 120
+          },
+          "permanent_share": {
+            "description": "Share of the loss that never comes back, 0..1. Drives the capitalised annuity.",
+            "type": "number", "minimum": 0, "maximum": 1
+          },
+          "margin": {
+            "description": "Earnings margin on the affected revenue, -1..1.",
+            "type": "number", "minimum": -1, "maximum": 1
+          },
+          "earnings_multiple": {
+            "description": "Multiple applied to the permanent earnings change.",
+            "type": "number", "minimum": 0, "maximum": 200
+          },
+          "revenue_at_stake_usd": {
+            "description": "revenue_line_usd * affected_fraction * (duration_months/12) * permanent_share. Signed; display data, not gated.",
+            "type": "number"
+          },
+          "profit_at_stake_usd": {
+            "description": "revenue_at_stake_usd * margin. Signed; display data, not gated.",
+            "type": "number"
+          },
+          "value_at_stake_usd": {
+            "description": "profit_at_stake_usd * earnings_multiple. Signed USD equity value at stake, negative = value destroyed. GATED: V7 requires long_term.impact_pct.base == value_at_stake_usd / market_cap_usd * 100.",
+            "type": "number"
+          },
+          "market_cap_usd": { "type": "number", "minimum": 0 },
+          "value_basis": {
+            "description": "Plain-language derivation of value_at_stake_usd from the chain inputs.",
+            "type": "string", "minLength": 20, "maxLength": 400
+          },
+          "variant_basis": {
+            "description": "What distinguishes the low and high variants from base.",
+            "type": "string", "minLength": 20, "maxLength": 400
+          },
+
+          "horizons": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["short_term", "medium_term", "long_term"],
+            "properties": {
+              "short_term": { "$ref": "#/definitions/position_horizon" },
+              "medium_term": { "$ref": "#/definitions/position_horizon" },
+              "long_term": { "$ref": "#/definitions/position_horizon" }
+            }
+          }
         }
       }
     },
 
     "portfolio_value_before_usd": { "type": "number", "minimum": 0 },
-    "portfolio_impact_pct": { "type": "number", "minimum": -25, "maximum": 25 },
-    "portfolio_impact_usd": { "type": "number" },
+
+    "horizons": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["short_term", "medium_term", "long_term"],
+      "properties": {
+        "short_term": { "$ref": "#/definitions/portfolio_horizon" },
+        "medium_term": { "$ref": "#/definitions/portfolio_horizon" },
+        "long_term": { "$ref": "#/definitions/portfolio_horizon" }
+      }
+    },
 
     "citations": {
       "type": "array", "minItems": 2,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["claim", "url"],
+        "required": ["claim", "url", "source", "published_at"],
         "properties": {
           "claim": { "type": "string", "minLength": 10 },
           "url": { "type": "string", "pattern": "^https?://" },
-          "source": { "type": "string" },
-          "published_at": { "type": "string" }
+          "source": {
+            "description": "Publisher name. Required by strict mode; emit \"\" if unknown.",
+            "type": "string"
+          },
+          "published_at": {
+            "description": "Article timestamp. Required by strict mode; emit \"\" if unknown.",
+            "type": "string"
+          }
         }
       }
     },

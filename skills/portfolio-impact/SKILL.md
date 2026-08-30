@@ -1,116 +1,123 @@
 ---
 name: portfolio-impact
-description: Quantify the impact of a breaking news event on every holding in a stock portfolio and emit a validated PortfolioImpactAnalysis JSON. Use whenever given a news event plus a portfolio.json and asked for per-position impact, second-order effects, or a portfolio-level P&L estimate.
+description: Estimate the forward-looking fundamental value impact of a news event on every holding in a stock portfolio, across short/medium/long horizons with low-base-high ranges, and emit a validated PortfolioImpactAnalysis JSON. Use whenever given a news event plus a portfolio.json and asked for per-position impact, second-order effects, or portfolio P&L.
 ---
 
 # Portfolio impact analysis
 
-Given a news event and `/work/portfolio.json`, quantify the impact on **every** holding and
-emit JSON matching `/verifier/impact.schema.json` to `/work/result.json`. A verifier checks it
-and will reject you with a precise list of failed checks.
+Given a news event and `/work/portfolio.json`, quantify the impact on **every** holding and write `/work/result.json` matching `/verifier/impact.schema.json`. A verifier returns the exact failed checks.
 
-## Method
+You are valuing **a change in the business**, not extrapolating a price chart. Do not size impact with beta or historical correlation. Ask: how many dollars of future profit did this event create or destroy, and how large is the company that owns them? $50bn of value lost at a $1tn company is -5%, whatever the stock did today. Set `methodology` to `fundamental_value_impact`.
 
-Pick **one** methodology, declare it in `methodology`, and apply it consistently:
+## The chain — six steps, every number derived and shown
 
-| value | formula |
-|---|---|
-| `beta_weighted_shock` | `impact_pct_i = beta_i × market_shock_pct` — for market-wide/rate/macro shocks |
-| `sector_exposure_map` | `impact_pct_i = sector_shock_pct[sector_i] × exposure_i` — for sector or commodity shocks |
-| `correlation_contagion` | `impact_pct_i = corr(i, hit) × impact_pct_hit` — for a shock to one named company that spreads |
+1. **EXPOSURE** `revenue_line_usd` — the business line the news touches, not total revenue. "NVDA data centre", not "NVDA".
+2. **MAGNITUDE** `affected_fraction` — share of that line actually hit (0-1).
+3. **DURATION** `duration_months`, `permanent_share` — how long it runs, and what fraction never comes back. **Deferred revenue slips right; it is not lost.** A fab outage delaying shipments a quarter destroys little value; a design win lost to a rival destroys all of it. This step separates a scare from a wound.
+4. **PROFIT** `revenue_at_stake_usd = revenue_line_usd * affected_fraction * (duration_months/12) * permanent_share`, then `profit_at_stake_usd = revenue_at_stake_usd * margin`
+5. **CAPITALISE** `value_at_stake_usd = profit_at_stake_usd * earnings_multiple`
+6. **EQUITY** `impact_pct = value_at_stake_usd / market_cap_usd * 100`
 
-Pick the one that matches the transmission mechanism, not the one that is easiest.
+Negative for value destroyed. Emit all six inputs plus `revenue_at_stake_usd`, `profit_at_stake_usd`, `value_at_stake_usd`, `market_cap_usd` — the verifier recomputes the chain from them.
 
-## Workflow
+> **V7 closure:** `value_at_stake_usd / market_cap_usd * 100` must equal `horizons.long_term.impact_pct.base` within 0.05. The chain lands on the **long-term base cell**; the other eight are derived from it, never independently invented.
 
-1. Read `/work/portfolio.json`. Read the event.
-2. Research: 2–4 calls, no more. Establish what actually happened, the size of the move, and
-   who is exposed. Then stop researching and start computing.
-3. Write a Python script in `/work` (pandas + numpy are installed) that loads the portfolio,
-   applies your formula to every row, and computes the totals. **Compute, do not estimate in
-   your head** — mental arithmetic across 10 positions is the single most common cause of
-   rejection.
-4. Write `/work/result.json`. Print the reconciliation residual so you can see it is ~0.
+### Worked example — ILLUSTRATIVE ONLY, derive your own
 
-## THE RECONCILIATION RULE — read this twice
+Stale numbers, shown for the pattern. They will **not** match what you fetch. Copy the method.
 
 ```
-portfolio_impact_pct == sum(p["weight_pct"]/100 * p["impact_pct"] for p in positions)   # ±0.01
+NVDA, TSMC fab outage, long_term / base
+  revenue_line_usd  $115bn   data-centre segment      margin            0.55
+  affected_fraction 0.25     gated by node + CoWoS    earnings_multiple 30
+  duration_months   3        backlog clears in a qtr  market_cap_usd    $1.02tn (FETCHED, cited)
+  permanent_share   0.30     70% ships late, not never
+  -> revenue_at_stake = 115 * 0.25 * (3/12) * 0.30 = $2.2bn
+  -> profit_at_stake  = 2.2 * 0.55                 = $1.2bn
+  -> value_at_stake   = 1.2 * 30                   = -$36bn
+  -> impact_pct       = -36 / 1020 * 100           = -3.5%   <- long_term.base
+  -> contribution     = -3.5 * 14.00/100           = -0.49pp of portfolio
 ```
 
-Compute `portfolio_impact_pct` **from the line items**. Never write it down independently and
-never round it by hand. This is the check that rejects most first attempts.
+## Market caps must be fetched live
 
-Also required, per position:
-
-```
-impact_usd == value_before_usd * impact_pct / 100        # ±$1
-```
-and `portfolio_impact_usd == sum(impact_usd)`, `portfolio_value_before_usd == total_value_usd`.
-
-Do it like this:
-
-```python
-import json
-port = json.load(open("/work/portfolio.json"))
-positions = []
-for p in port["positions"]:
-    impact_pct = round(my_formula(p), 4)          # your chosen methodology
-    positions.append({
-        "ticker": p["ticker"], "sector": p["sector"],
-        "weight_pct": p["weight_pct"], "value_before_usd": p["value_usd"],
-        "impact_pct": impact_pct,
-        "impact_usd": round(p["value_usd"] * impact_pct / 100, 2),
-        "rationale": "...", "confidence": 0.6,
-    })
-total_pct = round(sum(p["weight_pct"]/100 * p["impact_pct"] for p in positions), 4)
-total_usd = round(sum(p["impact_usd"] for p in positions), 2)
-assert abs(total_pct - sum(p["weight_pct"]/100*p["impact_pct"] for p in positions)) < 0.01
-```
-
-## Coverage
-
-**Every holding in the portfolio must appear in `positions`** — all 10, same tickers, same
-`weight_pct` and `value_before_usd` as the portfolio file. A holding you judge unaffected still
-gets a row with `"impact_pct": 0` and a one-line rationale saying why it is insulated. Omitting
-a position fails the verifier; inventing a ticker not in the portfolio also fails.
-
-Keep `impact_pct` inside ±25 (schema bound). Realistic single-event moves are ±0.5% to ±8%;
-anything past ±10% needs a strong reason in the rationale.
-
-## Tools
-
-- `/opt/kit/parallel_client.py` — `search(query, max_results=5) -> list[dict]` and
-  `extract(url) -> str`. Needs `PARALLEL_API_KEY` (already in env).
-- `/opt/kit/sec_client.py` — `ticker_to_cik`, `latest_filings(cik, forms=("8-K",))` (the rows
-  carry 8-K `items` codes), `filing_text`. **`SEC_USER_AGENT` must be set on every request** —
-  the client enforces it; without it EDGAR 403s and blocks the IP for ~10 minutes.
-- Finnhub's free tier returns 403 on `/stock/candle`. Do not try it.
+**A fabricated market cap invalidates the entire chain** — step 6 divides by it. Never invent, hardcode, or recall from memory. Fetch it and cite the source URL:
 
 ```python
 import sys; sys.path.insert(0, "/opt/kit")
-import parallel_client, sec_client
-hits = parallel_client.search("TSMC fab outage AI GPU supply", max_results=5)
-n_calls = parallel_client.get_call_count()
+import sec_client
+mc  = sec_client.market_cap("NVDA", price_usd=200.0)  # live XBRL shares x price
+rev = sec_client.annual_revenue("NVDA")               # total; you attribute it to a segment
+# both return {..., "source_url": ...} -> put that URL in citations
 ```
 
-## Citations
+Pass `price_usd` from `portfolio.json`. If a ticker fails, fall back to `parallel_client.search` and cite that. Same rule for `revenue_line_usd`: segment revenue comes from a filing or fetched research, never from memory.
 
-`citations` needs **at least 2** entries, each `{claim, url}` with a real `https://` URL that
-you actually fetched in this run. Copy the URL from the tool output. **Never invent, guess, or
-reconstruct a URL** — a plausible-looking fabricated link is a failure, not a near miss.
+## Three horizons, three different mechanisms
 
-## Budget
+Not one number scaled by time. Each carries its own `method` and `note`.
 
-Credits are limited. Be efficient: research once, compute once, emit once. Report honestly in
-`budget`:
+| horizon | window | `method` | driven by |
+|---|---|---|---|
+| `short_term` | 0-1 mo | `sentiment_positioning` | headline severity, narrative, crowding, positioning, momentum. **Not the chain.** |
+| `medium_term` | 1-6 mo | `fundamental_chain_discounted` | the chain, discounted for what is already priced in |
+| `long_term` | 6-24 mo | `fundamental_chain` | the chain in full |
 
-- `codex_credits_used` — your best estimate of credits consumed so far
-- `parallel_calls_used` — from `parallel_client.get_call_count()`
-- `attempts` — 1 on the first emit, incremented on each retry
+Short-term moves are sentiment and flow, not value: a crowded long unwinds harder than fundamentals justify, an unloved name barely moves on real damage.
 
-## On rejection
+**short_term and long_term ARE ALLOWED TO DISAGREE, and the divergence is the most valuable output here.** A name can be -8% on panic and only -2% on value — that gap is the trade. Do not average them, smooth them together, or let one anchor the other. If every position has short ≈ long you have not done the work. Explain the divergence in `horizons.*.note`.
 
-You will be handed the exact list of failed checks. Fix **precisely those** and re-emit. Do not
-rewrite the thesis, do not change methodology, do not re-run research — the usual fix is
-arithmetic. If `V3` failed, recompute `portfolio_impact_pct` from the line items with Python.
+## Ranges: three runs of the chain, not three guesses
+
+Every estimate is `{low, base, high}`. Vary the chain inputs and **re-run**; say what you varied in `variant_basis`:
+
+- **low** — larger `affected_fraction`, longer `duration_months`, higher `permanent_share`
+- **base** — central estimate
+- **high** — contained and mostly deferred: smaller fraction, shorter, lower permanent share
+
+**V5 requires `low <= base <= high` numerically**, so for damage `low` is the most negative. Bounds are +/-60; realistic single-event moves are +/-0.5% to +/-8%. Never type three numbers the arithmetic did not produce.
+
+## THE ARITHMETIC RULE — nine reconciliation gates
+
+For **every** (horizon, variant) pair — 3 x 3 = 9 gates (V3):
+
+```
+horizons[h].impact_pct[v] == SUM(p.weight_pct/100 * p.horizons[h].impact_pct[v])   +/-0.01
+```
+
+Also `impact_usd == value_before_usd * impact_pct / 100` in every cell (V4, +/-$1).
+
+Compute the **whole grid in one pandas script** — three rows of arithmetic over a DataFrame, not 90 separate decisions. Derive portfolio totals **from** the position rows, never independently. **Print the nine residuals before writing the file.** This is where attempts get rejected.
+
+```python
+import pandas as pd
+df = pd.DataFrame(rows)          # one row per position, chain inputs as columns
+for h in ("short_term", "medium_term", "long_term"):
+    for v in ("low", "base", "high"):
+        total = (df.weight_pct / 100 * df[f"{h}_{v}"]).sum()
+        print(h, v, round(total, 4), "residual", round(total - portfolio[h][v], 6))
+```
+
+## Output shape
+
+Top level: `news_id`, `headline`, `published_at` (ISO-8601, `""` if truly unknown), `thesis` (40-600 chars), `methodology`, `confidence`, `mechanism` (1-6 edges of `{from, to, effect}`; **`from`/`to` max 22 chars**), `positions`, `portfolio_value_before_usd`, `horizons`, `citations`, `budget`.
+
+`positions[]`: `ticker`, `sector`, `weight_pct`, `value_before_usd`, the six chain inputs, `revenue_at_stake_usd`, `profit_at_stake_usd`, `value_at_stake_usd`, `market_cap_usd`, `value_basis` (plain-language derivation of `value_at_stake_usd`, 20-400 chars), `variant_basis`, `rationale`, `confidence`, and `horizons.{short_term,medium_term,long_term}` each with `method`, `note`, and `impact_pct`/`impact_usd` as `{low, base, high}`.
+
+**Every holding appears**, with the same `ticker`, `weight_pct` and `value_before_usd` as the portfolio file. A genuinely unaffected holding may **skip the chain**: use an all-zero 3x3 grid and write a `value_basis` containing the literal token `market_cap_value_impact` inside a full sentence (still >=20 chars), plus an honest rationale for why it is insulated. **Never fabricate a chain to justify a zero.**
+
+## Tools
+
+- `/opt/kit/sec_client.py` — `market_cap`, `annual_revenue`, `ticker_to_cik`, `latest_filings(cik, forms=("8-K",))` (rows carry 8-K `items` codes), `filing_text`. **`SEC_USER_AGENT` must be set** — the client enforces it; without it EDGAR 403s and blocks the IP for ~10 minutes.
+- `/opt/kit/parallel_client.py` — `search(query, max_results=5)`, `extract(url)`, `get_call_count()`. Needs `PARALLEL_API_KEY` (already in env).
+- Finnhub free tier 403s on `/stock/candle`. Do not try it.
+
+pandas and numpy are installed in `/work`. **Compute, do not estimate in your head.**
+
+## Citations, budget, rejection
+
+`citations` needs >=2 entries with **all four** of `claim`, `url`, `source`, `published_at`, using real `https://` URLs you fetched this run — including the market-cap sources. Copy them from tool output; **never invent or reconstruct a URL**, a plausible-looking fabricated link is a failure, not a near miss.
+
+Research once (2-4 calls), compute once, emit once. Report `codex_credits_used`, `parallel_calls_used` (`parallel_client.get_call_count()`) and `attempts` in `budget`.
+
+On rejection you get the exact failed checks. Fix **precisely those** and re-emit — do not rewrite the thesis or re-run research. The usual fix is arithmetic: recompute the failing horizon/variant total from the position rows in pandas.

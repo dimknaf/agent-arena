@@ -267,6 +267,59 @@ def _fallback_verify(result: dict, portfolio: dict, measured: dict) -> dict:
     return {"passed": all(c["passed"] for c in checks), "checks": checks}
 
 
+def _strictify_schema(node: Any) -> Any:
+    """Make a JSON Schema acceptable to OpenAI structured outputs (strict mode).
+
+    `codex --output-schema` feeds the schema to the API in strict mode, which demands
+    that EVERY object node lists every one of its `properties` in `required` and sets
+    `additionalProperties: false`. A single optional field makes the whole request fail
+    with HTTP 400 invalid_json_schema, and codex dies in ~4s having written nothing.
+
+    We normalise a copy at upload time rather than editing verifier/impact.schema.json
+    (owned by workstream B). This only ever ADDS keys to `required`, so anything valid
+    against the normalised schema is still valid against the original -- verify.py's own
+    jsonschema pass is unaffected.
+    """
+    if isinstance(node, list):
+        return [_strictify_schema(n) for n in node]
+    if not isinstance(node, dict):
+        return node
+
+    out = {k: _strictify_schema(v) for k, v in node.items()}
+    props = out.get("properties")
+    if isinstance(props, dict) and props:
+        out["required"] = list(props.keys())
+        out.setdefault("additionalProperties", False)
+    return out
+
+
+def _schema_upload_bytes() -> bytes:
+    """The exact schema bytes we upload -- strict-mode normalised, stably serialised.
+
+    V6 compares this against what we read back out of the sandbox, so it must be
+    byte-identical on both sides.
+    """
+    raw = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return json.dumps(_strictify_schema(raw), indent=2, sort_keys=True).encode("utf-8")
+
+
+def _news_list(news: Any) -> list[dict]:
+    """Normalise the news argument: a single event dict or a list of them."""
+    if isinstance(news, dict):
+        return [news]
+    if isinstance(news, (list, tuple)):
+        return [n for n in news if isinstance(n, dict)]
+    raise TypeError(f"news must be a dict or a list of dicts, got {type(news).__name__}")
+
+
+def _news_id(news: Any) -> str:
+    """Stable id for the scenario -- the single event's id, or the joined ids."""
+    ids = []
+    for ev in _news_list(news):
+        ids.append(str(ev.get("id") or ev.get("news_id") or "unknown"))
+    return "+".join(ids) if ids else "unknown"
+
+
 def _route_for(failed_checks: list[dict], attempt: int) -> tuple[str, str, str]:
     """Pick model/effort/route label for the NEXT attempt.
 
@@ -740,13 +793,15 @@ class Orchestrator:
         await self.emit_tool(kind, label, detail=detail, status=status, body=body)
 
     # -- sandbox lifecycle --------------------------------------------------
-    async def _upload_inputs(self, sandbox, news: dict, portfolio: dict, budget: dict) -> None:
+    async def _upload_inputs(self, sandbox, news: Any, portfolio: dict, budget: dict) -> None:
         from daytona import FileUpload
 
-        schema_bytes = SCHEMA_PATH.read_bytes()
+        # Normalised for OpenAI strict mode; see _strictify_schema.
+        schema_bytes = _schema_upload_bytes()
         uploads = [
             FileUpload(source=json.dumps(portfolio, indent=2).encode(), destination=f"{WORK_DIR}/portfolio.json"),
-            FileUpload(source=json.dumps(news, indent=2).encode(), destination=f"{WORK_DIR}/news.json"),
+            FileUpload(source=json.dumps(_news_list(news), indent=2).encode(),
+                       destination=f"{WORK_DIR}/news.json"),
             FileUpload(source=json.dumps(budget, indent=2).encode(), destination=f"{WORK_DIR}/budget.json"),
             # OUTSIDE the -C /work workspace root: the agent cannot rewrite its own contract.
             FileUpload(source=schema_bytes, destination=REMOTE_SCHEMA),
@@ -984,40 +1039,114 @@ class Orchestrator:
             pass
         return None
 
-    def _build_prompt(self, news: dict, portfolio: dict, attempt: int) -> str:
+    def _build_prompt(self, news: Any, portfolio: dict, attempt: int) -> str:
+        """The task prompt. Kept tight: it is in context on every turn of every attempt."""
+        events = _news_list(news)
+        n = len(portfolio.get("positions", []))
         tickers = ", ".join(p.get("ticker", "?") for p in portfolio.get("positions", []))
-        return f"""You are a quantitative analyst agent. Produce a rigorous portfolio-impact analysis.
 
-INPUTS (already on disk, workspace root /work):
-  /work/news.json      the news event to analyse
-  /work/portfolio.json the portfolio ({len(portfolio.get('positions', []))} US equities: {tickers})
-  /work/budget.json    your budget; this is attempt {attempt}
+        nl = chr(10)
+        if len(events) == 1:
+            e = events[0]
+            scenario = (
+                f"ONE event: {e.get('headline', '')}{nl}"
+                f"  news_id for your output: {_news_id(news)}"
+            )
+        else:
+            lines = nl.join(
+                f"  {i}. [{ev.get('id') or ev.get('news_id')}] {ev.get('headline','')}"
+                for i, ev in enumerate(events, 1)
+            )
+            scenario = (
+                f"{len(events)} events forming ONE COMBINED SCENARIO. Reason about how they{nl}"
+                f"compound or offset each other -- do not analyse them independently"
+                f" and add up.{nl}"
+                f"{lines}{nl}"
+                f"  news_id for your output: {_news_id(news)}"
+            )
 
-CONTRACT (read-only, outside your workspace): {REMOTE_SCHEMA}
-Read that schema. Your output MUST validate against it. Write the final object to /work/result.json.
+        return f"""You are a fundamental equity analyst. Compute the forward-looking VALUE impact
+of the news on the portfolio, and write /work/result.json.
 
-WHAT TO DO - do not hand-wave, write and RUN code:
- 1. Read the news and the portfolio.
- 2. Research the mechanism. Use the network (curl / python requests) for corroboration.
-    SEC EDGAR REQUIRES a descriptive User-Agent header or it returns 403 and IP-blocks you
-    for ~10 minutes; use the value in $SEC_USER_AGENT.
- 3. Write a Python file (e.g. /work/analysis.py) that computes the per-position impacts.
-    Actually execute it. Do not fabricate numbers in prose.
- 4. ARITHMETIC THAT IS CHECKED BY A HOST-SIDE VERIFIER - get it exactly right:
-      * include EVERY position from /work/portfolio.json - all {len(portfolio.get('positions', []))} of
-        them, no subsets, no extras. A name you judge unaffected still gets a row with impact_pct 0.
-      * copy `weight_pct` and `value_before_usd` straight from the portfolio file; the
-        weights must still sum to 100
-      * for each position: impact_usd == value_before_usd * impact_pct / 100   (+/- $1)
-      * portfolio_impact_pct == SUM over positions of (weight_pct/100 * impact_pct)  (+/- 0.01)
-        Compute this by summation in code; never round it by hand.
-      * portfolio_impact_usd == portfolio_value_before_usd * portfolio_impact_pct / 100
-      * `citations` needs at least 2 entries with real http(s) URLs you actually consulted
-      * `budget.attempts` MUST be {attempt}
- 5. Write /work/result.json. Emit the same JSON object as your final message.
+SCENARIO
+{scenario}
 
-Keep the thesis 40-600 characters, mechanism 1-6 links, methodology one of
-beta_weighted_shock | sector_exposure_map | correlation_contagion.
+INPUTS (workspace root /work)
+  news.json       the event(s) above, in full
+  portfolio.json  {n} US equities: {tickers}
+  budget.json     this is attempt {attempt}
+CONTRACT (read-only, OUTSIDE your workspace): {REMOTE_SCHEMA}
+Read it first. Your output MUST validate against it.
+
+TOOLKIT (already installed, use it)
+  import sys; sys.path.insert(0, "{REMOTE_KIT_DIR}")
+  import parallel_client, sec_client
+  parallel_client.search(query, max_results=5)      -> web research
+  sec_client.ticker_to_cik(t) / latest_filings(cik) -> SEC, with the required User-Agent
+  guard built in. NEVER call EDGAR raw: a missing User-Agent returns 403 and IP-blocks
+  you for ~10 minutes, which kills the run.
+
+THIS IS NOT A PRICE STUDY. Do not use betas, correlations, or historical price reactions.
+Value comes from business fundamentals. Every number must be DERIVED IN CODE, not asserted.
+
+THE CHAIN -- per position, emit each input so the arithmetic is auditable:
+  1 EXPOSURE    revenue_line_usd     annual USD of the business line the news touches
+  2 MAGNITUDE   affected_fraction    share of that line actually hit (0-1)
+  3 DURATION    duration_months = the ECONOMIC DISRUPTION WINDOW, not the physical outage:
+                  share shift, requalification, roadmap slip. Typically 6-12 months.
+                  A 2-week fab outage still has a 6-12 month economic window.
+                permanent_share (0-1) = the fraction of THAT window's revenue never recovered.
+                These two MULTIPLY, so using the physical outage length here collapses every
+                result to ~0.0% and the analysis looks broken.
+  4 PROFIT      revenue_at_stake_usd = revenue_line_usd * affected_fraction
+                                       * (duration_months/12) * permanent_share
+                profit_at_stake_usd  = revenue_at_stake_usd * margin
+  5 CAPITALISE  value_at_stake_usd   = profit_at_stake_usd * earnings_multiple
+  6 EQUITY      impact_pct           = value_at_stake_usd / market_cap_usd * 100
+
+MARKET CAPS MUST BE FETCHED LIVE. Never invent, guess or hardcode one -- a made-up market
+cap invalidates the entire chain. Derive it from SEC companyconcept
+(dei:EntityCommonStockSharesOutstanding) x price, or via parallel_client.search. Record how
+you got it in `value_basis` and add a citation for it.
+
+THREE HORIZONS, each with a low/base/high range (a 3x3 grid per position):
+  short_term  0-1 month    method "sentiment_positioning" -- headline severity, narrative,
+                           crowding, momentum. NOT the chain: near-term moves are sentiment
+                           and flow, not value.
+  medium_term 1-6 months   the chain, discounted for what is already priced in
+  long_term   6-24 months  the full chain
+Divergence between short_term and long_term is the most interesting result. Do not suppress it.
+Each POSITION horizon also needs `method` (<=60 chars) and `note` (10-300 chars).
+Put what separates low/base/high in `variant_basis`.
+
+ORDERING: low <= base <= high on BOTH impact_pct and impact_usd, every horizon, position and
+portfolio. For NEGATIVE impacts this means `low` is the MOST NEGATIVE (the worst case) and
+`high` the least negative. Getting this backwards is the single most common failure.
+
+NINE RECONCILIATION GATES (host-verified, strict). The portfolio block is TOP-LEVEL `horizons`,
+a sibling of portfolio_value_before_usd -- there is NO "portfolio" key. For each horizon h and
+each variant v in low/base/high:
+  horizons[h].impact_pct[v]
+      == SUM over positions of (weight_pct/100 * positions[i].horizons[h].impact_pct[v])  +/-0.01
+  impact_usd == value_before_usd * impact_pct / 100                                       +/-$1
+  long_term.impact_pct.base == value_at_stake_usd / market_cap_usd * 100                  +/-0.05
+Compute the WHOLE grid in ONE pandas script -- it is three rows of arithmetic, not 90 separate
+decisions -- run it, and PRINT THE RESIDUALS before writing the file. Never round by hand.
+
+ALSO REQUIRED
+  * every position from portfolio.json, all {n}, no subsets and no extras
+  * copy weight_pct and value_before_usd straight from portfolio.json
+  * ALL SIX chain inputs are required on EVERY position as real numbers -- never null, never
+    omitted. A name you judge unaffected still states a REAL market_cap_usd (> 0) and zeroes
+    the FRACTION (affected_fraction 0.0 and/or permanent_share 0.0), which makes the whole
+    chain and its long_term.base come out at 0.0. It does not zero the market cap.
+  * ranges, or the schema rejects you: impact_pct in [-60,60]; affected_fraction and
+    permanent_share in [0,1]; margin in [-1,1]; earnings_multiple in [0,200];
+    duration_months in [0,120]; value_basis and variant_basis 20-400 chars each
+  * mechanism: 1-6 links; `from` and `to` are max 22 chars (they render as graph nodes)
+  * citations: >=2 real URLs you actually fetched, including the market-cap source
+  * budget.attempts MUST be {attempt}
+Write /work/result.json and emit the same object as your final message.
 """
 
     def _codex_cmd(self, prompt: str, *, resume: bool) -> str:
@@ -1244,7 +1373,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             print(f"[orchestrator] failed to save run: {exc!r}")
 
     # -- the main loop ------------------------------------------------------
-    async def run(self, news: dict, portfolio: dict) -> dict:
+    async def run(self, news: Any, portfolio: dict) -> dict:
         api_key = os.environ.get("DAYTONA_API_KEY")
         if not api_key:
             raise RuntimeError(
@@ -1327,6 +1456,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             await self._lock_egress(sandbox)
 
             base_prompt = self._build_prompt(news, portfolio, 1)
+            last_invoked: tuple[str, str] = ("", "")
 
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 self.attempt = attempt
@@ -1349,10 +1479,23 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                 with contextlib.suppress(Exception):
                     await sandbox.fs.delete_file(REMOTE_RESULT)
 
-                if attempt == 1:
-                    prompt, resume = base_prompt, False
+                # `codex exec resume --last` refuses a model switch ("This session was
+                # recorded with model gpt-5.6-terra but is resuming with gpt-5.6-luna"),
+                # and our retry routing changes the model on almost every reroute. So
+                # resume only when the model AND effort are unchanged; otherwise start a
+                # fresh exec carrying the failure list in the prompt.
+                same_model = (self.model, self.effort) == last_invoked
+                if attempt == 1 or not same_model:
+                    if attempt == 1:
+                        prompt, resume = base_prompt, False
+                    else:
+                        prompt, resume = (
+                            f"{base_prompt}\n\n{self._retry_prompt(last_report, attempt)}",
+                            False,
+                        )
                 else:
                     prompt, resume = self._retry_prompt(last_report, attempt), True
+                last_invoked = (self.model, self.effort)
 
                 await self.emit_state("running")
                 cmd = self._codex_cmd(prompt, resume=resume)
@@ -1398,7 +1541,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                     result, err = await self._download_result(sandbox)
 
                 sandbox_hash = await self._sandbox_schema_hash(sandbox)
-                local_schema_hash = _sha256_bytes(SCHEMA_PATH.read_bytes())
+                local_schema_hash = _sha256_bytes(_schema_upload_bytes())
 
                 measured = {
                     "attempts": attempt,
@@ -1508,7 +1651,7 @@ and set budget.attempts to {attempt}. Emit the corrected JSON object as your fin
 # ===========================================================================
 
 
-async def run_analysis(news: dict, portfolio: dict, emit: Callable[[dict], Any]) -> dict:
+async def run_analysis(news: Any, portfolio: dict, emit: Callable[[dict], Any]) -> dict:
     """Run one news-event analysis inside a fresh Daytona sandbox.
 
     Args:
@@ -1600,10 +1743,13 @@ async def _smoke() -> None:
         elif t == "result":
             print("== RESULT " + json.dumps(ev["data"])[:400])
 
-    news = CANNED_NEWS
+    news: Any = CANNED_NEWS
     if len(sys.argv) > 2 and sys.argv[1] == "--news":
-        news = _load_news(sys.argv[2])
-        print(f"[smoke] news: {news.get('id')} - {news.get('headline','')[:80]}")
+        ids = [i.strip() for i in sys.argv[2].split(",") if i.strip()]
+        loaded = [_load_news(i) for i in ids]
+        news = loaded[0] if len(loaded) == 1 else loaded
+        for ev in loaded:
+            print(f"[smoke] news: {ev.get('id')} - {ev.get('headline','')[:80]}")
 
     t0 = time.monotonic()
     try:

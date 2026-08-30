@@ -386,10 +386,17 @@ body{
 .hudcell{display:flex;align-items:center;gap:14px;min-width:0}
 
 /* ── news strip + run controls ─────────────────────────── */
-#hudNews{grid-column:1;grid-row:1;display:flex;align-items:stretch;gap:12px;min-width:0}
-#newsStrip{flex:1;display:flex;gap:10px;min-width:0;overflow:hidden}
+#hudNews{grid-column:1;grid-row:1;display:flex;align-items:stretch;gap:10px;min-width:0}
+#newsStrip{flex:1;display:flex;gap:8px;min-width:0;overflow:hidden}
+.nempty{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:15px;color:var(--surface2);letter-spacing:.08em;
+}
+.nchip .nbox{flex:none;font-size:17px;line-height:1;color:var(--overlay)}
+.nchip.sel .nbox{color:var(--cyan)}
+.nchip .ntxt{flex:1;min-width:0;overflow:hidden}
 .nchip{
-  flex:1 1 0;min-width:0;text-align:left;
+  flex:1 1 0;min-width:0;text-align:left;display:flex;align-items:flex-start;gap:8px;
   background:rgba(49,50,68,.5);
   border:1px solid rgba(205,214,244,.10);
   border-left:4px solid var(--surface2);
@@ -414,15 +421,20 @@ body{
 .nchip.sel .nh{color:#fff}
 .nchip.sel .nm{color:var(--cyan)}
 
-#scanBtn{
-  flex:none;width:82px;
+#scanBtn,#promptBtn{
+  flex:none;width:78px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   background:rgba(203,166,247,.12);border:1px solid rgba(203,166,247,.38);
   border-radius:10px;color:var(--mauve);cursor:pointer;
-  font-family:var(--mono);font-size:22px;line-height:1;
+  font-family:var(--mono);font-size:21px;line-height:1;
 }
-#scanBtn span{font-size:11.5px;letter-spacing:.14em}
+#scanBtn span,#promptBtn span{font-size:11px;letter-spacing:.12em}
 #scanBtn.busy{animation:spin 1s linear infinite}
+#allBtn{
+  flex:none;width:74px;border-radius:10px;cursor:pointer;
+  background:rgba(137,220,235,.10);border:1px solid rgba(137,220,235,.34);
+  color:var(--cyan);font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:.08em;
+}
 
 #runBtn{
   grid-column:2;grid-row:1/3;height:100%;
@@ -598,7 +610,105 @@ body{
 .a2nusd{font-family:var(--mono);font-size:25px;color:var(--subtext);margin-top:2px}
 
 /* ── mid band: chain + waterfall ───────────────────────── */
-#a2mid{flex:none;height:420px;display:grid;grid-template-columns:1fr 1fr;gap:16px;min-height:0}
+/* ── BEAT D · horizon scrubber ─────────────────────────── */
+#a2scrub{
+  flex:none;height:62px;display:flex;align-items:center;gap:16px;
+  padding:0 22px;border-radius:14px;
+  border:1px solid rgba(205,214,244,.12);
+  background:linear-gradient(90deg, rgba(137,220,235,.10), rgba(49,50,68,.42) 60%);
+}
+.a2sep{width:1px;height:30px;background:rgba(205,214,244,.16);flex:none}
+#a2hz{display:flex;gap:8px;flex:none}
+.hzb{
+  font-family:var(--mono);font-size:16px;font-weight:700;letter-spacing:.12em;
+  padding:8px 20px;border-radius:999px;cursor:pointer;
+  background:rgba(49,50,68,.6);border:1.5px solid var(--surface2);color:var(--overlay);
+  transition:opacity .2s;
+}
+.hzb.on{border-color:var(--cyan);color:var(--cyan);background:rgba(137,220,235,.18)}
+#a2pband{
+  flex:1;min-width:0;height:22px;position:relative;border-radius:6px;
+  background:rgba(205,214,244,.07);overflow:hidden;
+}
+#a2pband .pb{
+  position:absolute;top:0;bottom:0;left:0;width:100%;border-radius:5px;
+  transform-origin:0 50%;transform:translateX(0) scaleX(0);
+  transition:transform .6s cubic-bezier(.2,.9,.3,1);
+}
+#a2pband .pk{position:absolute;top:-3px;bottom:-3px;width:3px;background:var(--text);border-radius:2px}
+#a2pband .pz{position:absolute;top:0;bottom:0;width:1px;background:rgba(205,214,244,.4)}
+.a2bandnum{font-family:var(--mono);font-size:26px;font-weight:700;flex:none;min-width:150px;text-align:right}
+
+#a2mid{flex:none;height:406px;display:grid;grid-template-columns:1.06fr 1fr;gap:16px;min-height:0}
+
+/* ── BEAT A · the value cascade ────────────────────────── */
+#a2casc{flex:1;min-height:0;padding:10px 20px 12px;display:flex;flex-direction:column;gap:5px}
+.csr{
+  display:grid;grid-template-columns:120px 1fr 190px;align-items:baseline;gap:14px;
+  padding:7px 12px;border-radius:9px;cursor:pointer;
+  border-left:3px solid transparent;
+  animation:csin .44s cubic-bezier(.18,1.2,.3,1) both;
+}
+@keyframes csin{
+  from{opacity:0;transform:translate3d(-26px,-10px,0)}
+  to  {opacity:1;transform:none}
+}
+.csr:nth-child(odd){background:rgba(205,214,244,.035)}
+.csr.on{border-left-color:var(--yellow);background:rgba(249,226,175,.12)}
+.csr .op{font-family:var(--mono);font-size:21px;font-weight:700;color:var(--mauve)}
+.csr .lb{font-size:17px;color:var(--subtext);letter-spacing:.03em}
+.csr .vl{font-family:var(--mono);font-size:24px;font-weight:700;color:var(--text);text-align:right}
+.csr.head .vl{font-size:27px;color:var(--cyan)}
+.csr.head .op{color:var(--overlay);font-size:15px;letter-spacing:.16em}
+.csr.fin{border-top:1px solid rgba(205,214,244,.16);margin-top:3px;padding-top:11px}
+.csr.fin .vl{font-size:33px}
+.csr .sfx{font-size:14px;color:var(--overlay);display:block;font-family:var(--sans)}
+#a2cascWhy{
+  flex:none;min-height:52px;padding:10px 14px;border-radius:10px;
+  background:rgba(17,17,27,.6);border-left:3px solid var(--yellow);
+  font-size:16px;line-height:1.36;color:var(--subtext);
+}
+.cscNone{padding:26px;font-size:19px;color:var(--overlay);text-align:center}
+
+/* ── BEAT B · the fan ──────────────────────────────────── */
+.fan{display:flex;flex-direction:column;gap:4px;margin-top:1px}
+.fnr{display:grid;grid-template-columns:26px 1fr 62px;align-items:center;gap:7px}
+.fnl{font-family:var(--mono);font-size:11.5px;color:var(--overlay);letter-spacing:.08em}
+.fnt{position:relative;height:13px;border-radius:4px;background:rgba(205,214,244,.07);overflow:hidden}
+.fnb{
+  position:absolute;top:0;bottom:0;left:0;width:100%;border-radius:4px;
+  transform-origin:0 50%;transform:translateX(0) scaleX(0);
+  transition:transform .55s cubic-bezier(.2,.9,.3,1);
+}
+.fnk{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--text);border-radius:2px}
+.fnz{position:absolute;top:0;bottom:0;width:1px;background:rgba(205,214,244,.34)}
+.fnv{font-family:var(--mono);font-size:12.5px;font-weight:700;text-align:right}
+
+/* ── BEAT C · sentiment vs value flag ──────────────────── */
+.cFlagS{
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;
+  padding:3px 9px;border-radius:999px;align-self:flex-start;white-space:nowrap;
+  animation:tick .5s cubic-bezier(.16,1.3,.3,1) both;
+}
+.cFlagS.over{background:rgba(203,166,247,.2);border:1px solid var(--mauve);color:var(--mauve)}
+.cFlagS.under{background:rgba(250,179,135,.2);border:1px solid var(--amber);color:var(--amber)}
+
+#a2prompt{
+  position:absolute;left:50%;top:50%;z-index:90;
+  width:1260px;max-height:74vh;transform:translate3d(-50%,-50%,0);
+  padding:26px 30px;border-radius:18px;
+  border:2px solid rgba(203,166,247,.4);
+  background:linear-gradient(180deg,#232338,#15151f);
+  box-shadow:0 40px 120px rgba(0,0,0,.75);
+  animation:detin .3s ease both;
+  display:flex;flex-direction:column;
+}
+#a2prompt[hidden]{display:none!important}
+.pmt{
+  flex:1;min-height:0;overflow:auto;
+  font-family:var(--mono);font-size:16px;line-height:1.5;color:var(--subtext);
+  white-space:pre-wrap;word-break:break-word;
+}
 .a2panel{
   display:flex;flex-direction:column;min-height:0;overflow:hidden;
   border:1px solid rgba(205,214,244,.11);border-radius:16px;

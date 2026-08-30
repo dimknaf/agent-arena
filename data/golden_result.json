@@ -2,39 +2,39 @@
   "news_id": "evt-taiwan-quake",
   "headline": "Magnitude 7.1 earthquake near Hsinchu halts TSMC leading-edge fabs; advanced packaging lines offline",
   "published_at": "2026-08-28T01:40:00Z",
-  "thesis": "A magnitude 7.1 quake near Hsinchu has idled TSMC's N3/N2 lines and, critically, the CoWoS advanced-packaging capacity that is the single source for AI accelerator assembly. This portfolio's semiconductor and AI-hardware names are correlated through one supplier rather than through a sector factor, so the shock propagates unevenly: NVDA and AVGO take the direct hit, AAPL and MSFT absorb second-order timing damage, CAT and NEE feel a slower data-centre build, and the low-beta defensives catch the rotation out of AI.",
-  "methodology": "correlation_contagion",
-  "confidence": 0.71,
+  "thesis": "A quake near Hsinchu has idled TSMC's leading-edge lines and the CoWoS packaging that gates AI accelerator assembly. Valued as forward cash flow rather than price behaviour, almost all of the damage is timing: revenue deferred inside a disruption window, with only a small permanent share capitalised at each name's multiple. That is why the long-run portfolio impact is a fraction of the short-term move - the market prices panic in weeks, but only the permanently lost earnings survive to twelve months.",
+  "methodology": "fundamental_value_impact",
+  "confidence": 0.68,
   "mechanism": [
     {
       "from": "M7.1 Hsinchu quake",
       "to": "TSMC N3/N2 fabs",
-      "effect": "Fab 12/18/20 evacuated; 5-10 days of tool requalification and in-process wafer scrap"
+      "effect": "fabs evacuated and lines requalified, opening a multi-quarter allocation window rather than destroying capacity"
     },
     {
       "from": "TSMC N3/N2 fabs",
       "to": "CoWoS packaging",
-      "effect": "single-source advanced-packaging capacity offline, the binding constraint on AI accelerator assembly"
+      "effect": "the single-source step for AI accelerator assembly sets the pace of the entire downstream chain"
     },
     {
       "from": "CoWoS packaging",
       "to": "NVDA / AVGO",
-      "effect": "roughly one month of accelerator and custom-ASIC shipments pushed out of the quarter"
+      "effect": "revenue deferred out of the window, and a small permanent share of the AI socket capitalised at ~34x"
     },
     {
       "from": "NVDA / AVGO",
       "to": "MSFT Azure AI",
-      "effect": "GPU-gated capacity build slows, shifting Azure AI revenue recognition and capex to the right"
+      "effect": "a slipped capacity ramp against committed capex, hitting timing rather than the installed base"
     },
     {
       "from": "MSFT Azure AI",
       "to": "CAT / NEE",
-      "effect": "data-centre genset orders and grid interconnect demand slip a quarter with the build"
+      "effect": "data-centre genset orders and grid interconnect demand defer with the build"
     },
     {
       "from": "NVDA / AVGO",
       "to": "JNJ / WMT / XOM",
-      "effect": "selling in the AI complex funds a risk-off rotation into low-beta defensive ballast"
+      "effect": "a positioning rotation into defensives that carries no fundamental value and decays to zero by the long horizon"
     }
   ],
   "positions": [
@@ -43,130 +43,710 @@
       "sector": "Technology Hardware",
       "weight_pct": 15.04,
       "value_before_usd": 15040.0,
-      "impact_pct": -2.6,
-      "impact_usd": -391.04,
-      "rationale": "Apple is TSMC's largest N3 customer and the A-series and M-series silicon for the autumn iPhone and Mac ramp comes off the idled Fab 18 lines. A 5-10 day halt lands mid-build, though Apple's node-transition inventory buffer absorbs part of the slip.",
-      "confidence": 0.74
+      "rationale": "Apple buys the leading-edge silicon for its autumn ramp from the idled lines, so a requalification window bleeds into a launch quarter. Almost all of it is timing: units deferred, not demand destroyed, which is why the permanent share is small.",
+      "confidence": 0.72,
+      "revenue_line_usd": 210000000000.0,
+      "affected_fraction": 0.42,
+      "duration_months": 9.0,
+      "permanent_share": 0.072629,
+      "margin": 0.26,
+      "earnings_multiple": 29.0,
+      "revenue_at_stake_usd": -4804408350.0,
+      "profit_at_stake_usd": -1249146171.0,
+      "value_at_stake_usd": -36225238959.0,
+      "market_cap_usd": 3450000000000.0,
+      "value_basis": "market_cap_usd $3,450bn taken from the last close and cited; $210bn exposed revenue line x 42% affected x 9-month disruption window x 7.26% never recovered, at 26% margin, capitalised at 29x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -3.155,
+            "base": -2.3,
+            "high": -1.445
+          },
+          "impact_usd": {
+            "low": -474.51,
+            "base": -345.92,
+            "high": -217.33
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -2.37,
+            "base": -1.6,
+            "high": -0.83
+          },
+          "impact_usd": {
+            "low": -356.45,
+            "base": -240.64,
+            "high": -124.83
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -1.73,
+            "base": -1.05,
+            "high": -0.37
+          },
+          "impact_usd": {
+            "low": -260.19,
+            "base": -157.92,
+            "high": -55.65
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "NVDA",
       "sector": "Semiconductors",
       "weight_pct": 14.0,
       "value_before_usd": 14000.0,
-      "impact_pct": -7.2,
-      "impact_usd": -1008.0,
-      "rationale": "The most direct casualty. NVIDIA is fabless and wholly dependent on TSMC leading-edge wafers plus CoWoS, the single-source bottleneck for every AI accelerator it ships, so its correlation to this shock is near one; a two-week outage defers roughly a month of GB-series deliveries.",
-      "confidence": 0.86
+      "rationale": "The largest fundamental exposure in the book. NVIDIA is fabless and its accelerators clear through a single CoWoS packaging queue, so a disrupted allocation window both defers revenue and hands a slice of the AI socket to competing roadmaps permanently.",
+      "confidence": 0.85,
+      "revenue_line_usd": 180000000000.0,
+      "affected_fraction": 0.55,
+      "duration_months": 9.0,
+      "permanent_share": 0.095068,
+      "margin": 0.55,
+      "earnings_multiple": 34.0,
+      "revenue_at_stake_usd": -7058799000.0,
+      "profit_at_stake_usd": -3882339450.0,
+      "value_at_stake_usd": -131999541300.0,
+      "market_cap_usd": 4400000000000.0,
+      "value_basis": "market_cap_usd $4,400bn taken from the last close and cited; $180bn exposed revenue line x 55% affected x 9-month disruption window x 9.51% never recovered, at 55% margin, capitalised at 34x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -8.69,
+            "base": -6.4,
+            "high": -4.11
+          },
+          "impact_usd": {
+            "low": -1216.6,
+            "base": -896.0,
+            "high": -575.4
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -6.285,
+            "base": -4.3,
+            "high": -2.315
+          },
+          "impact_usd": {
+            "low": -879.9,
+            "base": -602.0,
+            "high": -324.1
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -4.85,
+            "base": -3.0,
+            "high": -1.15
+          },
+          "impact_usd": {
+            "low": -679.0,
+            "base": -420.0,
+            "high": -161.0
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "MSFT",
       "sector": "Software",
       "weight_pct": 12.6,
       "value_before_usd": 12600.0,
-      "impact_pct": -1.4,
-      "impact_usd": -176.4,
-      "rationale": "Second-order and timing-driven: Azure's AI capacity build is gated by NVIDIA accelerator deliveries, so a supply slip shifts revenue recognition and capex to the right rather than destroying demand. Software margin and the non-AI Azure base insulate the multiple.",
-      "confidence": 0.68
+      "rationale": "Azure AI capacity is gated by accelerator deliveries, so the damage is a slipped revenue ramp against already-committed capex, not lost demand. The installed base and non-AI Azure revenue are untouched, so very little of it capitalises.",
+      "confidence": 0.66,
+      "revenue_line_usd": 95000000000.0,
+      "affected_fraction": 0.35,
+      "duration_months": 12.0,
+      "permanent_share": 0.045538,
+      "margin": 0.42,
+      "earnings_multiple": 32.0,
+      "revenue_at_stake_usd": -1514138500.0,
+      "profit_at_stake_usd": -635938170.0,
+      "value_at_stake_usd": -20350021440.0,
+      "market_cap_usd": 3700000000000.0,
+      "value_basis": "market_cap_usd $3,700bn taken from the last close and cited; $95bn exposed revenue line x 35% affected x 12-month disruption window x 4.55% never recovered, at 42% margin, capitalised at 32x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -2.345,
+            "base": -1.7,
+            "high": -1.055
+          },
+          "impact_usd": {
+            "low": -295.47,
+            "base": -214.2,
+            "high": -132.93
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -1.5,
+            "base": -1.0,
+            "high": -0.5
+          },
+          "impact_usd": {
+            "low": -189.0,
+            "base": -126.0,
+            "high": -63.0
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.93,
+            "base": -0.55,
+            "high": -0.17
+          },
+          "impact_usd": {
+            "low": -117.18,
+            "base": -69.3,
+            "high": -21.42
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "AVGO",
       "sector": "Semiconductors",
       "weight_pct": 10.2,
       "value_before_usd": 10200.0,
-      "impact_pct": -5.4,
-      "impact_usd": -550.8,
-      "rationale": "Broadcom's custom AI ASICs and AI-networking silicon are fabbed on the same TSMC leading-edge nodes and sit in the same CoWoS queue, so it moves with NVIDIA. Its heavy Apple revenue concentration is a second exposure to the identical outage.",
-      "confidence": 0.81
+      "rationale": "Custom AI ASICs and AI networking silicon share the same leading-edge nodes and the same packaging queue, and Broadcom's design-win cycle is long enough that a missed allocation window can move a socket for a full product generation.",
+      "confidence": 0.79,
+      "revenue_line_usd": 62000000000.0,
+      "affected_fraction": 0.48,
+      "duration_months": 9.0,
+      "permanent_share": 0.096291,
+      "margin": 0.46,
+      "earnings_multiple": 33.0,
+      "revenue_at_stake_usd": -2149215120.0,
+      "profit_at_stake_usd": -988638955.2,
+      "value_at_stake_usd": -32625085521.6,
+      "market_cap_usd": 1450000000000.0,
+      "value_basis": "market_cap_usd $1,450bn taken from the last close and cited; $62bn exposed revenue line x 48% affected x 9-month disruption window x 9.63% never recovered, at 46% margin, capitalised at 33x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -6.26,
+            "base": -4.6,
+            "high": -2.94
+          },
+          "impact_usd": {
+            "low": -638.52,
+            "base": -469.2,
+            "high": -299.88
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -4.545,
+            "base": -3.1,
+            "high": -1.655
+          },
+          "impact_usd": {
+            "low": -463.59,
+            "base": -316.2,
+            "high": -168.81
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -3.65,
+            "base": -2.25,
+            "high": -0.85
+          },
+          "impact_usd": {
+            "low": -372.3,
+            "base": -229.5,
+            "high": -86.7
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "JPM",
       "sector": "Financials",
       "weight_pct": 10.08,
       "value_before_usd": 10080.0,
-      "impact_pct": -0.2,
-      "impact_usd": -20.16,
-      "rationale": "Market-beta only. A drawdown concentrated in the AI complex trims equity-underwriting and capital-markets sentiment at the margin, but JPMorgan's net interest income is driven by the rate path, which this event does not move.",
-      "confidence": 0.45
+      "rationale": "No supply-chain channel. The only fundamental line at risk is a modest slice of equity underwriting and advisory fees if the AI issuance calendar slows; net interest income, which drives the earnings power, is untouched by this event.",
+      "confidence": 0.44,
+      "revenue_line_usd": 170000000000.0,
+      "affected_fraction": 0.04,
+      "duration_months": 6.0,
+      "permanent_share": 0.034785,
+      "margin": 0.32,
+      "earnings_multiple": 13.0,
+      "revenue_at_stake_usd": -118269000.0,
+      "profit_at_stake_usd": -37846080.0,
+      "value_at_stake_usd": -491999040.0,
+      "market_cap_usd": 820000000000.0,
+      "value_basis": "market_cap_usd $820bn taken from the last close and cited; $170bn exposed revenue line x 4% affected x 6-month disruption window x 3.48% never recovered, at 32% margin, capitalised at 13x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -0.7925,
+            "base": -0.55,
+            "high": -0.3075
+          },
+          "impact_usd": {
+            "low": -79.88,
+            "base": -55.44,
+            "high": -31.0
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -0.34,
+            "base": -0.2,
+            "high": -0.06
+          },
+          "impact_usd": {
+            "low": -34.27,
+            "base": -20.16,
+            "high": -6.05
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.146,
+            "base": -0.06,
+            "high": 0.026
+          },
+          "impact_usd": {
+            "low": -14.72,
+            "base": -6.05,
+            "high": 2.62
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "XOM",
       "sector": "Energy",
       "weight_pct": 8.0,
       "value_before_usd": 8000.0,
-      "impact_pct": 0.0,
-      "impact_usd": 0.0,
-      "rationale": "No transmission channel. Exxon's earnings track crude and refining spreads, which a Taiwanese fab outage does not touch, and its correlation to the semiconductor cluster is approximately zero. Marked flat deliberately rather than guessed.",
-      "confidence": 0.62
+      "rationale": "No transmission channel at all. Crude and refining spreads do not respond to a Taiwanese fab outage, so affected_fraction is set to zero and the long-run fundamental impact is exactly nil rather than a guessed small number.",
+      "confidence": 0.6,
+      "revenue_line_usd": 340000000000.0,
+      "affected_fraction": 0.0,
+      "duration_months": 0.0,
+      "permanent_share": 0.0,
+      "margin": 0.1,
+      "earnings_multiple": 12.0,
+      "revenue_at_stake_usd": 0.0,
+      "profit_at_stake_usd": 0.0,
+      "value_at_stake_usd": 0.0,
+      "market_cap_usd": 540000000000.0,
+      "value_basis": "market_cap_usd $540bn taken from the last close and cited; $340bn exposed revenue line x 0% affected x 0-month disruption window x 0.00% never recovered, at 10% margin, capitalised at 12x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": 0.1125,
+            "base": 0.25,
+            "high": 0.3875
+          },
+          "impact_usd": {
+            "low": 9.0,
+            "base": 20.0,
+            "high": 31.0
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -0.0225,
+            "base": 0.05,
+            "high": 0.1225
+          },
+          "impact_usd": {
+            "low": -1.8,
+            "base": 4.0,
+            "high": 9.8
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.05,
+            "base": 0.0,
+            "high": 0.05
+          },
+          "impact_usd": {
+            "low": -4.0,
+            "base": 0.0,
+            "high": 4.0
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "WMT",
       "sector": "Consumer Staples",
       "weight_pct": 8.0,
       "value_before_usd": 8000.0,
-      "impact_pct": 0.3,
-      "impact_usd": 24.0,
-      "rationale": "Mildly positive on rotation: low-beta staples catch a bid when the AI complex sells off. The offsetting risk is consumer-electronics cost of goods if the outage persists, but at 5-10 days it never reaches shelf pricing.",
-      "confidence": 0.52
+      "rationale": "Marginally negative on fundamentals: a sustained outage raises consumer-electronics cost of goods on a thin-margin line. At this duration it barely reaches shelf pricing, so the capitalised value is close to zero.",
+      "confidence": 0.51,
+      "revenue_line_usd": 170000000000.0,
+      "affected_fraction": 0.03,
+      "duration_months": 6.0,
+      "permanent_share": 0.121492,
+      "margin": 0.03,
+      "earnings_multiple": 34.0,
+      "revenue_at_stake_usd": -309804600.0,
+      "profit_at_stake_usd": -9294138.0,
+      "value_at_stake_usd": -316000692.0,
+      "market_cap_usd": 790000000000.0,
+      "value_basis": "market_cap_usd $790bn taken from the last close and cited; $170bn exposed revenue line x 3% affected x 6-month disruption window x 12.15% never recovered, at 3% margin, capitalised at 34x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": 0.3075,
+            "base": 0.55,
+            "high": 0.7925
+          },
+          "impact_usd": {
+            "low": 24.6,
+            "base": 44.0,
+            "high": 63.4
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": 0.005,
+            "base": 0.1,
+            "high": 0.195
+          },
+          "impact_usd": {
+            "low": 0.4,
+            "base": 8.0,
+            "high": 15.6
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.114,
+            "base": -0.04,
+            "high": 0.034
+          },
+          "impact_usd": {
+            "low": -9.12,
+            "base": -3.2,
+            "high": 2.72
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "JNJ",
       "sector": "Health Care",
       "weight_pct": 7.92,
       "value_before_usd": 7920.0,
-      "impact_pct": 0.6,
-      "impact_usd": 47.52,
-      "rationale": "Classic risk-off ballast. With no semiconductor supply exposure and the lowest beta in the book, J&J is a natural destination for money leaving AI hardware, which makes it the largest positive contributor here.",
-      "confidence": 0.58
+      "rationale": "No fundamental exposure whatsoever - pharmaceutical and medtech cash flows are unrelated to semiconductor supply. Its entire modelled move is short-horizon positioning as money rotates out of AI hardware, and that decays to nothing.",
+      "confidence": 0.57,
+      "revenue_line_usd": 90000000000.0,
+      "affected_fraction": 0.0,
+      "duration_months": 0.0,
+      "permanent_share": 0.0,
+      "margin": 0.24,
+      "earnings_multiple": 16.0,
+      "revenue_at_stake_usd": 0.0,
+      "profit_at_stake_usd": 0.0,
+      "value_at_stake_usd": 0.0,
+      "market_cap_usd": 430000000000.0,
+      "value_basis": "market_cap_usd $430bn taken from the last close and cited; $90bn exposed revenue line x 0% affected x 0-month disruption window x 0.00% never recovered, at 24% margin, capitalised at 16x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": 0.5025,
+            "base": 0.85,
+            "high": 1.1975
+          },
+          "impact_usd": {
+            "low": 39.8,
+            "base": 67.32,
+            "high": 94.84
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": 0.0325,
+            "base": 0.15,
+            "high": 0.2675
+          },
+          "impact_usd": {
+            "low": 2.57,
+            "base": 11.88,
+            "high": 21.19
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.05,
+            "base": 0.0,
+            "high": 0.05
+          },
+          "impact_usd": {
+            "low": -3.96,
+            "base": 0.0,
+            "high": 3.96
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "CAT",
       "sector": "Industrials",
       "weight_pct": 7.12,
       "value_before_usd": 7120.0,
-      "impact_pct": -0.8,
-      "impact_usd": -56.96,
-      "rationale": "Indirect and timing-driven. Caterpillar's fastest-growing line is on-site power generation for data centres, so if hyperscaler capacity slips a quarter, genset and turbine orders slip with it. The core construction and mining cycle is untouched.",
-      "confidence": 0.55
+      "rationale": "Data-centre power generation is Caterpillar's fastest-growing line, so a slower hyperscaler build pushes genset and turbine orders right. The construction and mining cycle dominates earnings and is untouched, capping the fundamental damage.",
+      "confidence": 0.54,
+      "revenue_line_usd": 14000000000.0,
+      "affected_fraction": 0.35,
+      "duration_months": 9.0,
+      "permanent_share": 0.071231,
+      "margin": 0.19,
+      "earnings_multiple": 19.0,
+      "revenue_at_stake_usd": -261773925.0,
+      "profit_at_stake_usd": -49737045.75,
+      "value_at_stake_usd": -945003869.25,
+      "market_cap_usd": 210000000000.0,
+      "value_basis": "market_cap_usd $210bn taken from the last close and cited; $14bn exposed revenue line x 35% affected x 9-month disruption window x 7.12% never recovered, at 19% margin, capitalised at 19x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -1.535,
+            "base": -1.1,
+            "high": -0.665
+          },
+          "impact_usd": {
+            "low": -109.29,
+            "base": -78.32,
+            "high": -47.35
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -1.065,
+            "base": -0.7,
+            "high": -0.335
+          },
+          "impact_usd": {
+            "low": -75.83,
+            "base": -49.84,
+            "high": -23.85
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.77,
+            "base": -0.45,
+            "high": -0.13
+          },
+          "impact_usd": {
+            "low": -54.82,
+            "base": -32.04,
+            "high": -9.26
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     },
     {
       "ticker": "NEE",
       "sector": "Utilities",
       "weight_pct": 7.04,
       "value_before_usd": 7040.0,
-      "impact_pct": -0.3,
-      "impact_usd": -21.12,
-      "rationale": "Marginal. Data-centre load growth underwrites part of NextEra's interconnect pipeline, so a slower AI build pushes some contracted demand later, but the regulated rate base and signed PPAs dominate earnings and barely move.",
-      "confidence": 0.5
+      "rationale": "A slower AI build defers part of the data-centre interconnect pipeline, but the regulated rate base and signed PPAs supply the earnings. Only the growth increment is at risk, and only for as long as the build pauses.",
+      "confidence": 0.49,
+      "revenue_line_usd": 9000000000.0,
+      "affected_fraction": 0.3,
+      "duration_months": 12.0,
+      "permanent_share": 0.021164,
+      "margin": 0.3,
+      "earnings_multiple": 21.0,
+      "revenue_at_stake_usd": -57142800.0,
+      "profit_at_stake_usd": -17142840.0,
+      "value_at_stake_usd": -359999640.0,
+      "market_cap_usd": 180000000000.0,
+      "value_basis": "market_cap_usd $180bn taken from the last close and cited; $9bn exposed revenue line x 30% affected x 12-month disruption window x 2.12% never recovered, at 30% margin, capitalised at 21x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -0.6575,
+            "base": -0.45,
+            "high": -0.2425
+          },
+          "impact_usd": {
+            "low": -46.29,
+            "base": -31.68,
+            "high": -17.07
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -0.485,
+            "base": -0.3,
+            "high": -0.115
+          },
+          "impact_usd": {
+            "low": -34.14,
+            "base": -21.12,
+            "high": -8.1
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.37,
+            "base": -0.2,
+            "high": -0.03
+          },
+          "impact_usd": {
+            "low": -26.05,
+            "base": -14.08,
+            "high": -2.11
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+        }
+      }
     }
   ],
   "portfolio_value_before_usd": 100000.0,
-  "portfolio_impact_pct": -2.15296,
-  "portfolio_impact_usd": -2152.96,
+  "horizons": {
+    "short_term": {
+      "impact_pct": {
+        "low": -2.78717,
+        "base": -1.95944,
+        "high": -1.13171
+      },
+      "impact_usd": {
+        "low": -2787.17,
+        "base": -1959.44,
+        "high": -1131.71
+      }
+    },
+    "medium_term": {
+      "impact_pct": {
+        "low": -2.03201,
+        "base": -1.35208,
+        "high": -0.67215
+      },
+      "impact_usd": {
+        "low": -2032.01,
+        "base": -1352.08,
+        "high": -672.15
+      }
+    },
+    "long_term": {
+      "impact_pct": {
+        "low": -1.54134,
+        "base": -0.93209,
+        "high": -0.32284
+      },
+      "impact_usd": {
+        "low": -1541.34,
+        "base": -932.09,
+        "high": -322.84
+      }
+    }
+  },
   "citations": [
     {
       "claim": "Precedent, prior Taiwan quake: TSMC evacuated its fabs and suspended construction in the aftermath, and confirmed all personnel were safe.",
       "url": "https://www.sdxcentral.com/news/tsmc-evacuates-fabs-and-suspends-construction-in-earthquake-aftermath-confirms-all-personnel-are-safe/",
-      "source": "SDxCentral"
+      "source": "SDxCentral",
+      "published_at": ""
     },
     {
       "claim": "Precedent, prior Taiwan quake: TSMC evacuated its factories in Taiwan following the earthquake.",
       "url": "https://www.microchipusa.com/industry-news/taiwan-earthquake-tsmc-in-taiwan-evacuates-factories",
-      "source": "Microchip USA"
+      "source": "Microchip USA",
+      "published_at": ""
     },
     {
-      "claim": "Downside bound, prior Taiwan quake: TSMC's chipmaking facilities were rocked by the strongest quake in 27 years but escaped unharmed, its earthquake protection measures paying off. Evacuation does not imply structural damage, which is why this analysis models a short timing shock rather than lost capacity.",
+      "claim": "Downside bound, prior Taiwan quake: TSMC's chipmaking facilities were rocked by the strongest quake in 27 years but escaped unharmed, its earthquake protection measures paying off. Evacuation does not imply structural damage, which is why this analysis capitalises only a small permanent share.",
       "url": "https://www.tomshardware.com/tech-industry/semiconductors/tsmc-chipmaking-factories-rocked-by-magnitude-7-0-earthquake-that-was-the-strongest-in-27-years-but-facilities-escaped-unharmed-companys-earthquake-protection-measures-pay-off",
-      "source": "Tom's Hardware"
+      "source": "Tom's Hardware",
+      "published_at": ""
     },
     {
       "claim": "Seismic reference: magnitude, depth and epicentre data for earthquakes in the Taiwan region.",
       "url": "https://earthquake.usgs.gov/",
-      "source": "U.S. Geological Survey"
+      "source": "U.S. Geological Survey",
+      "published_at": ""
     }
   ],
   "budget": {
-    "codex_credits_used": 3.84,
-    "parallel_calls_used": 6,
+    "codex_credits_used": 5.12,
+    "parallel_calls_used": 8,
     "attempts": 2
   }
 }
