@@ -74,7 +74,11 @@ async def api_portfolio() -> dict[str, Any]:
 
 @app.get("/api/news")
 async def api_news() -> list[dict[str, Any]]:
-    return list(_live_news_cache["events"]) + load_news()
+    """Live news only. The canned samples are NOT a runtime source any more —
+    only the hypothetical portfolio is allowed to be fixed data."""
+    if _live_news_cache["events"]:
+        return list(_live_news_cache["events"])
+    return (await api_news_live()).get("events", [])
 
 
 # Live news, cached. kit.parallel_client is synchronous `requests`, so every call
@@ -195,8 +199,93 @@ async def api_news_live(force: bool = False) -> dict[str, Any]:
         _live_news_cache.update(events=events, fetched_at=now)
         return {"events": events, "cached": False, "live": True}
     except Exception as exc:
-        return {"events": load_news(), "cached": False, "live": False,
+        # Report the failure honestly. We do NOT silently substitute canned events —
+        # a demo that claims live news and quietly serves fixtures is worse than one
+        # that says the scan failed.
+        return {"events": [], "cached": False, "live": False,
                 "error": f"{type(exc).__name__}: {exc}"}
+
+
+# ---------------------------------------------------------------- prompt
+
+
+@app.get("/api/prompt")
+async def api_prompt(news_id: str | None = None) -> dict[str, Any]:
+    """The exact prompt sent to Codex, so it can be sanity-checked before a run."""
+    try:
+        import orchestrator
+        portfolio = load_portfolio()
+        events = await api_news()
+        news = next((e for e in events if e.get("id") == news_id), None) or (
+            events[0] if events else {"id": "none", "headline": "(no news selected)"})
+        orch = orchestrator.Orchestrator(lambda _e: None)
+        prompt = orch._build_prompt(news, portfolio, 1)
+        return {"prompt": prompt, "chars": len(prompt), "news_id": news.get("id")}
+    except Exception as exc:
+        return {"prompt": "", "error": f"{type(exc).__name__}: {exc}"}
+
+
+# ---------------------------------------------------------------- past runs
+
+
+RUNS = ROOT / "runs"
+
+
+@app.get("/api/runs")
+async def api_runs() -> list[dict[str, Any]]:
+    """Past REAL runs, newest first. These are the replay source — we never
+    replay invented data."""
+    out = []
+    if RUNS.exists():
+        for d in sorted(RUNS.iterdir(), reverse=True):
+            f = d / "run.json"
+            if not (d.is_dir() and f.exists()):
+                continue
+            try:
+                r = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            res = r.get("result") or {}
+            out.append({
+                "run_id": r.get("run_id", d.name),
+                "passed": r.get("passed"),
+                "attempts": r.get("attempts"),
+                "elapsed_s": r.get("elapsed_s"),
+                "tokens_total": r.get("tokens_total"),
+                "headline": (r.get("news") or {}).get("headline") or res.get("headline"),
+                "events": (d / "events.jsonl").exists(),
+            })
+    return out[:40]
+
+
+@app.get("/api/runs/{run_id}")
+async def api_run(run_id: str) -> dict[str, Any]:
+    """One past run, with its recorded event stream if we captured one."""
+    d = RUNS / run_id
+    if not d.is_dir():
+        matches = [p for p in RUNS.iterdir() if p.is_dir() and p.name.startswith(run_id)] \
+            if RUNS.exists() else []
+        if not matches:
+            raise HTTPException(404, f"no such run: {run_id}")
+        d = matches[0]
+    f = d / "run.json"
+    if not f.exists():
+        raise HTTPException(404, f"run {d.name} has no run.json")
+    payload = json.loads(f.read_text(encoding="utf-8"))
+
+    events: list[dict[str, Any]] = []
+    ef = d / "events.jsonl"
+    if ef.exists():
+        for line in ef.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except Exception:
+                pass
+    payload["events"] = events
+    return payload
 
 
 @app.get("/api/health")
@@ -265,40 +354,76 @@ async def api_trigger(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         payload = payload or {}
         news = payload.get("news")
+
         if news is None:
-            events = load_news() + list(_live_news_cache["events"])
-            if not events:
-                raise HTTPException(503, "no news events available")
-            news_id = payload.get("news_id")
-            if news_id:
-                news = next((e for e in events if e.get("id") == news_id), None)
-                if news is None:
-                    raise HTTPException(404, f"unknown news_id: {news_id}")
+            available = list(_live_news_cache["events"])
+            ids = payload.get("news_ids") or (
+                [payload["news_id"]] if payload.get("news_id") else [])
+            if not available:
+                raise HTTPException(503, "no news available - run a live scan first")
+            if ids:
+                news = [e for e in available if e.get("id") in ids]
+                missing = set(ids) - {e.get("id") for e in news}
+                if missing:
+                    raise HTTPException(404, f"unknown news_id(s): {sorted(missing)}")
             else:
-                news = events[0]
+                news = [available[0]]
+
+        # One combined scenario: several stories go into a single sandbox so the
+        # agent can reason about how they compound or offset each other.
+        if isinstance(news, dict):
+            news = [news]
+        if not news:
+            raise HTTPException(400, "no news events selected")
     except Exception:
         _current_run["active"] = False   # never strand the claim on a bad request
         raise
 
     asyncio.create_task(_run(news))
-    return {"started": True, "news_id": news.get("id"), "headline": news.get("headline")}
+    return {"started": True,
+            "count": len(news),
+            "news_ids": [e.get("id") for e in news],
+            "headlines": [e.get("headline") for e in news]}
 
 
-async def _run(news: dict[str, Any]) -> None:
+async def _run(news: list[dict[str, Any]]) -> None:
     async with _run_lock:
         run_id = f"run-{int(time.time())}"
         _current_run.update(active=True, run_id=run_id, started=time.time())
-        emit({"type": "state", "phase": "spawning", "attempt": 1, "run_id": run_id,
-              "headline": news.get("headline")})
+
+        # Record every event so this run can be replayed later. Replay must be a
+        # genuine past run, never a fixture.
+        recorded: list[dict[str, Any]] = []
+
+        def rec(event: dict[str, Any]) -> None:
+            recorded.append(event)
+            emit(event)
+
+        rec({"type": "state", "phase": "spawning", "attempt": 1, "run_id": run_id,
+             "headline": news[0].get("headline"),
+             "headlines": [e.get("headline") for e in news]})
         try:
             import orchestrator
             portfolio = load_portfolio()
-            result = await orchestrator.run_analysis(news, portfolio, emit)
-            emit({"type": "result", "data": result})
+            payload = news[0] if len(news) == 1 else news
+            result = await orchestrator.run_analysis(payload, portfolio, rec)
+            rec({"type": "result", "data": result})
         except Exception as exc:  # never let a failure kill the stream
-            emit({"type": "state", "phase": "error", "message": f"{type(exc).__name__}: {exc}"})
+            rec({"type": "state", "phase": "error", "message": f"{type(exc).__name__}: {exc}"})
         finally:
             _current_run.update(active=False)
+            try:
+                d = RUNS / run_id
+                d.mkdir(parents=True, exist_ok=True)
+                with (d / "events.jsonl").open("w", encoding="utf-8") as fh:
+                    for e in recorded:
+                        fh.write(json.dumps(e, default=str) + "\n")
+                if not (d / "run.json").exists():
+                    (d / "run.json").write_text(json.dumps(
+                        {"run_id": run_id, "news": news[0], "news_all": news},
+                        indent=2, default=str), encoding="utf-8")
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------- static

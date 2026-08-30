@@ -439,17 +439,9 @@ const BASE_NEWS = [
   'Analysts flag second-order exposure across hyperscaler capex',
   'Energy and managed care bid as rotation defensive',
 ];
-/* real headlines if the backend has them, otherwise the canned set */
+/* headline wire — adoptNews() (run controls, below) swaps in the real
+   /api/news events when they arrive and re-renders. */
 let NEWS = BASE_NEWS;
-fetch('/api/news')
-  .then(r => r.ok ? r.json() : Promise.reject(0))
-  .then(list => {
-    const arr = (Array.isArray(list) ? list : (list.events || []))
-      .map(n => typeof n === 'string' ? n : (n.headline || n.title || n.text || ''))
-      .filter(Boolean);
-    if(arr.length){ NEWS = arr.slice(0, 8); renderTicker(); }
-  })
-  .catch(() => {});
 
 function renderTicker(){
   const items = S.headlines.concat(NEWS);
@@ -479,6 +471,10 @@ function onState(ev){
   if(ev.phase){
     setPhase(ev.phase);
     if(ev.phase === 'destroyed') tombstone(ev);
+    // the run is over — hand the RUN button back
+    if(/^(destroyed|accepted|error)$/.test(ev.phase)) setRunning(false);
+    else setRunning(true);
+    if(ev.phase === 'error' && ev.message) toast(String(ev.message).slice(0, 90));
   }
 }
 
@@ -525,19 +521,20 @@ function handle(ev){
 }
 
 /* ══════════════════════ PORTFOLIO BOOTSTRAP ════════════════════════ */
+/* mirrors data/portfolio.json so the UI is correct with no backend */
 const FALLBACK = {
   total_value_usd: 100000,
   positions: [
-    {ticker:'AAPL', name:'Apple Inc.',            sector:'Technology',             qty:40,  price_usd:455.00, value_usd:18200, weight_pct:18.2},
-    {ticker:'MSFT', name:'Microsoft Corp.',       sector:'Technology',             qty:28,  price_usd:535.71, value_usd:15000, weight_pct:15.0},
-    {ticker:'NVDA', name:'NVIDIA Corp.',          sector:'Semiconductors',         qty:70,  price_usd:192.86, value_usd:13500, weight_pct:13.5},
-    {ticker:'AMZN', name:'Amazon.com Inc.',       sector:'Consumer Discretionary', qty:42,  price_usd:238.10, value_usd:10000, weight_pct:10.0},
-    {ticker:'GOOGL',name:'Alphabet Inc.',         sector:'Communication Services', qty:36,  price_usd:250.00, value_usd:9000,  weight_pct:9.0},
-    {ticker:'META', name:'Meta Platforms Inc.',   sector:'Communication Services', qty:11,  price_usd:727.27, value_usd:8000,  weight_pct:8.0},
-    {ticker:'JPM',  name:'JPMorgan Chase & Co.',  sector:'Financials',             qty:24,  price_usd:304.17, value_usd:7300,  weight_pct:7.3},
-    {ticker:'TSLA', name:'Tesla Inc.',            sector:'Consumer Discretionary', qty:16,  price_usd:437.50, value_usd:7000,  weight_pct:7.0},
-    {ticker:'XOM',  name:'Exxon Mobil Corp.',     sector:'Energy',                 qty:50,  price_usd:120.00, value_usd:6000,  weight_pct:6.0},
-    {ticker:'UNH',  name:'UnitedHealth Group',    sector:'Health Care',            qty:18,  price_usd:333.33, value_usd:6000,  weight_pct:6.0},
+    {ticker:'AAPL', name:'Apple Inc.',              sector:'Technology Hardware', value_usd:15040, weight_pct:15.04},
+    {ticker:'NVDA', name:'NVIDIA Corporation',      sector:'Semiconductors',      value_usd:14000, weight_pct:14.00},
+    {ticker:'MSFT', name:'Microsoft Corporation',   sector:'Software',            value_usd:12600, weight_pct:12.60},
+    {ticker:'AVGO', name:'Broadcom Inc.',           sector:'Semiconductors',      value_usd:10200, weight_pct:10.20},
+    {ticker:'JPM',  name:'JPMorgan Chase & Co.',    sector:'Financials',          value_usd:10080, weight_pct:10.08},
+    {ticker:'XOM',  name:'Exxon Mobil Corporation', sector:'Energy',              value_usd:8000,  weight_pct:8.00},
+    {ticker:'WMT',  name:'Walmart Inc.',            sector:'Consumer Staples',    value_usd:8000,  weight_pct:8.00},
+    {ticker:'JNJ',  name:'Johnson & Johnson',       sector:'Health Care',         value_usd:7920,  weight_pct:7.92},
+    {ticker:'CAT',  name:'Caterpillar Inc.',        sector:'Industrials',         value_usd:7120,  weight_pct:7.12},
+    {ticker:'NEE',  name:'NextEra Energy, Inc.',    sector:'Utilities',           value_usd:7040,  weight_pct:7.04},
   ]
 };
 
@@ -612,40 +609,54 @@ patched portfolio_impact_pct -> -1.67
 patched portfolio_impact_usd -> -1665.50
 re-emitting /work/result.json`;
 
-const RESULT = {
-  news_id: 'reuters-2026-08-30-export-controls',
-  headline: 'US widens advanced-node semiconductor export controls to two additional foundries',
-  published_at: '2026-08-30T06:12:00Z',
-  thesis: 'Tighter advanced-node export controls compress near-term unit volume for AI accelerator supply chains, with second-order drag on hyperscaler capex-levered names and a defensive rotation bid into energy and managed care.',
+/* Canned payload — schema-valid against verifier/impact.schema.json and it
+   genuinely reconciles: Sigma(w/100 x impact) = -1.80696 -> declared -1.81
+   (drift 0.003 < the 0.01 V3 tolerance), and every impact_usd is exact.
+   Swapped for data/golden_result.json at boot when that file exists. */
+let RESULT = {
+  news_id: 'evt-taiwan-quake',
+  headline: 'Magnitude 7.1 earthquake near Hsinchu halts TSMC leading-edge fabs; advanced packaging lines offline',
+  published_at: '2026-08-28T01:40:00Z',
+  thesis: 'A 5-to-10 day outage at TSMC leading-edge and CoWoS advanced-packaging capacity binds the single-source bottleneck for AI accelerator assembly. The book takes concentrated damage through its semiconductor weight, a second-order drag on hyperscaler capacity build, and a partial offset from a defensive rotation into staples, health care and financials.',
   methodology: 'beta_weighted_shock',
-  confidence: 0.71,
+  confidence: 0.74,
   mechanism: [
-    {from:'export controls', to:'NVDA', effect:'direct unit-volume compression in restricted SKUs'},
-    {from:'NVDA', to:'MSFT/GOOGL', effect:'accelerator scarcity delays AI capex monetisation'},
-    {from:'risk-off rotation', to:'XOM/UNH', effect:'defensive sector bid'},
+    {from:'M7.1 Hsinchu quake',      to:'TSMC leading-edge fabs', effect:'Fab 12, 18 and 20 evacuated; N3/N2 wafer starts idled'},
+    {from:'TSMC leading-edge fabs',  to:'CoWoS packaging',        effect:'advanced packaging offline an estimated 5-10 days'},
+    {from:'CoWoS packaging',         to:'NVDA/AVGO',              effect:'accelerator assembly is single-sourced on this line'},
+    {from:'TSMC leading-edge fabs',  to:'AAPL',                   effect:'N3 capacity for A-series slips roughly one quarter'},
+    {from:'NVDA/AVGO',               to:'MSFT',                   effect:'Azure AI capacity build defers with accelerator supply'},
+    {from:'risk-off rotation',       to:'JNJ/WMT/JPM',            effect:'defensive, staples and rate-sensitive bid'},
   ],
   positions: [
-    {ticker:'NVDA', sector:'Semiconductors',         weight_pct:13.5, value_before_usd:13500, impact_pct:-6.40, impact_usd:-864.00, rationale:'Highest direct revenue exposure to restricted advanced-node SKUs; consensus expects a mid-single-digit unit haircut.', confidence:0.78},
-    {ticker:'TSLA', sector:'Consumer Discretionary', weight_pct:7.0,  value_before_usd:7000,  impact_pct:-2.40, impact_usd:-168.00, rationale:'Autonomy compute roadmap depends on restricted accelerator supply; high-beta discretionary name in risk-off tape.', confidence:0.55},
-    {ticker:'MSFT', sector:'Technology',             weight_pct:15.0, value_before_usd:15000, impact_pct:-1.80, impact_usd:-270.00, rationale:'Azure AI capacity build slips on accelerator scarcity, deferring capex monetisation by one to two quarters.', confidence:0.66},
-    {ticker:'AAPL', sector:'Technology',             weight_pct:18.2, value_before_usd:18200, impact_pct:-1.20, impact_usd:-218.40, rationale:'Limited direct exposure; drag is via general technology multiple compression rather than unit volume.', confidence:0.60},
-    {ticker:'GOOGL',sector:'Communication Services', weight_pct:9.0,  value_before_usd:9000,  impact_pct:-1.10, impact_usd:-99.00,  rationale:'TPU roadmap partially insulates Alphabet, but shared foundry capacity is still constrained.', confidence:0.58},
-    {ticker:'AMZN', sector:'Consumer Discretionary', weight_pct:10.0, value_before_usd:10000, impact_pct:-0.90, impact_usd:-90.00,  rationale:'AWS accelerator fleet expansion slows; retail segment largely unaffected by the control regime.', confidence:0.57},
-    {ticker:'META', sector:'Communication Services', weight_pct:8.0,  value_before_usd:8000,  impact_pct:-0.70, impact_usd:-56.00,  rationale:'Training cluster expansion is exposed, but inference demand and ad revenue are near-term insulated.', confidence:0.54},
-    {ticker:'JPM',  sector:'Financials',             weight_pct:7.3,  value_before_usd:7300,  impact_pct: 0.30, impact_usd: 21.90,  rationale:'Modest rotation benefit; no direct supply-chain exposure to the restricted node classes.', confidence:0.44},
-    {ticker:'UNH',  sector:'Health Care',            weight_pct:6.0,  value_before_usd:6000,  impact_pct: 0.40, impact_usd: 24.00,  rationale:'Defensive managed-care bid as growth multiples de-rate on the announcement.', confidence:0.46},
-    {ticker:'XOM',  sector:'Energy',                 weight_pct:6.0,  value_before_usd:6000,  impact_pct: 0.90, impact_usd: 54.00,  rationale:'Energy leads the defensive rotation; unaffected by semiconductor control regime.', confidence:0.49},
+    {ticker:'NVDA', sector:'Semiconductors',      weight_pct:14.00, value_before_usd:14000, impact_pct:-6.80, impact_usd:-952.00, confidence:0.81, rationale:'CoWoS advanced packaging is the binding constraint on accelerator assembly and is single-sourced at the affected Hsinchu lines; a 5-10 day halt pushes a quarter of H200-class shipments right.'},
+    {ticker:'AVGO', sector:'Semiconductors',      weight_pct:10.20, value_before_usd:10200, impact_pct:-4.20, impact_usd:-428.40, confidence:0.72, rationale:'Custom AI ASIC programmes share the same leading-edge node and packaging queue; networking silicon is less exposed, which caps the drawdown below NVDA.'},
+    {ticker:'AAPL', sector:'Technology Hardware', weight_pct:15.04, value_before_usd:15040, impact_pct:-2.40, impact_usd:-360.96, confidence:0.68, rationale:'Apple is the largest N3 customer by volume and builds inventory ahead of the autumn cycle, so a sub-two-week outage delays rather than destroys units.'},
+    {ticker:'MSFT', sector:'Software',            weight_pct:12.60, value_before_usd:12600, impact_pct:-1.10, impact_usd:-138.60, confidence:0.59, rationale:'Second-order only: Azure AI capacity additions track accelerator deliveries, deferring revenue recognition without impairing the installed base.'},
+    {ticker:'CAT',  sector:'Industrials',         weight_pct: 7.12, value_before_usd: 7120, impact_pct:-0.30, impact_usd: -21.36, confidence:0.41, rationale:'Marginal drag from a broad industrial risk-off move; no direct semiconductor supply-chain exposure in the machinery franchise.'},
+    {ticker:'JNJ',  sector:'Health Care',         weight_pct: 7.92, value_before_usd: 7920, impact_pct: 0.45, impact_usd:  35.64, confidence:0.52, rationale:'Classic defensive beneficiary as growth multiples de-rate on a supply shock; earnings stream is uncorrelated with foundry capacity.'},
+    {ticker:'WMT',  sector:'Consumer Staples',    weight_pct: 8.00, value_before_usd: 8000, impact_pct: 0.35, impact_usd:  28.00, confidence:0.50, rationale:'Staples absorb rotation flow out of semiconductors; consumer electronics is too small a basket share to matter to the P&L.'},
+    {ticker:'JPM',  sector:'Financials',          weight_pct:10.08, value_before_usd:10080, impact_pct: 0.20, impact_usd:  20.16, confidence:0.44, rationale:'Modest rotation benefit and a steeper curve on the risk-off bid; no direct exposure to Taiwanese manufacturing capacity.'},
+    {ticker:'NEE',  sector:'Utilities',           weight_pct: 7.04, value_before_usd: 7040, impact_pct: 0.15, impact_usd:  10.56, confidence:0.43, rationale:'Rate-sensitive defensive bid, partly offset by softer expected data-centre load growth if AI capacity build slips.'},
+    {ticker:'XOM',  sector:'Energy',              weight_pct: 8.00, value_before_usd: 8000, impact_pct: 0.00, impact_usd:   0.00, confidence:0.38, rationale:'No identifiable transmission channel from Taiwanese foundry capacity to integrated oil and gas cash flows; held flat rather than guessed.'},
   ],
   portfolio_value_before_usd: 100000,
-  portfolio_impact_pct: -1.67,
-  portfolio_impact_usd: -1665.50,
+  portfolio_impact_pct: -1.81,
+  portfolio_impact_usd: -1806.96,
   citations: [
-    {claim:'Commerce Department expanded the entity list to two additional foundries', url:'https://www.federalregister.gov/documents/2026/08/30/export-controls', source:'Federal Register', published_at:'2026-08-30'},
-    {claim:'NVDA restricted-SKU revenue share disclosed at 11% of data centre segment', url:'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=NVDA', source:'SEC EDGAR 10-Q', published_at:'2026-07-24'},
-    {claim:'Sector beta estimates from trailing 250-day regression', url:'https://fred.stlouisfed.org/series/SP500', source:'FRED', published_at:'2026-08-29'},
+    {claim:'TSMC evacuated and idled Fab 12, Fab 18 and Fab 20; leading-edge N3/N2 lines and CoWoS capacity down an estimated 5 to 10 days', url:'https://www.reuters.com/technology/tsmc-halts-fabs-hsinchu-quake', source:'Reuters', published_at:'2026-08-28'},
+    {claim:'NVDA data centre segment revenue concentration on CoWoS advanced packaging disclosed in the most recent 10-Q', url:'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=NVDA', source:'SEC EDGAR 10-Q', published_at:'2026-07-24'},
+    {claim:'Broadcom custom AI accelerator programmes qualified on the same leading-edge node', url:'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=AVGO', source:'SEC EDGAR 10-K', published_at:'2026-06-12'},
+    {claim:'Sector beta estimates derived from a trailing 250-day regression against the S&P 500', url:'https://fred.stlouisfed.org/series/SP500', source:'FRED', published_at:'2026-08-27'},
   ],
-  budget: { codex_credits_used: 412, parallel_calls_used: 3, attempts: 2 }
+  budget: { codex_credits_used: 468, parallel_calls_used: 3, attempts: 2 }
 };
+
+/* prefer the verifier-validated golden payload when stream D lands it */
+fetch('data/golden_result.json')
+  .then(r => r.ok ? r.json() : Promise.reject(0))
+  .then(g => { if(g && Array.isArray(g.positions) && g.positions.length) RESULT = g; })
+  .catch(() => {});
 
 const V_OK  = n => ({id:n[0], name:n[1], passed:true});
 const NAMES = SEED;
@@ -748,5 +759,510 @@ function runDemo(){
 
   $('#railHint').textContent = 'DEMO REPLAY';
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   PART 1 · RUN CONTROLS — news strip, RUN button, SPACE, live scan
+   ══════════════════════════════════════════════════════════════════════ */
+const FALLBACK_NEWS = [{
+  id:'evt-taiwan-quake',
+  headline:'Magnitude 7.1 earthquake near Hsinchu halts TSMC leading-edge fabs; advanced packaging offline',
+  summary:'TSMC evacuated and idled Fab 12, 18 and 20. Leading-edge N3/N2 lines and CoWoS advanced-packaging capacity down an estimated 5-10 days.',
+  published_at:'2026-08-28T01:40:00Z', tickers_hint:['NVDA','AVGO','AAPL','MSFT']
+}];
+let NEWS_EVENTS = [];
+
+function newsMeta(n){
+  const d = (n.published_at || '').slice(5,10).replace('-','/');
+  const tk = (n.tickers_hint || []).slice(0,4).join(' ');
+  return [tk, d].filter(Boolean).join('  ·  ');
+}
+function renderNewsStrip(){
+  const box = $('#newsStrip'); box.innerHTML = '';
+  NEWS_EVENTS.slice(0,4).forEach(n => {
+    const b = el('button', 'nchip' + (n.id === S.selNews ? ' sel' : ''),
+      `<span class="nh">${esc(n.headline || n.id)}</span><span class="nm">${esc(newsMeta(n))}</span>`);
+    b.title = n.summary || '';
+    b.onclick = () => { S.selNews = n.id; renderNewsStrip(); };
+    box.appendChild(b);
+  });
+}
+function adoptNews(list, keepOnEmpty){
+  const arr = (Array.isArray(list) ? list : (list && list.events) || []).filter(n => n && n.headline);
+  if(!arr.length) return keepOnEmpty ? false : false;   // never empty the strip
+  NEWS_EVENTS = arr;
+  if(!NEWS_EVENTS.some(n => n.id === S.selNews)) S.selNews = NEWS_EVENTS[0].id;
+  renderNewsStrip();
+  NEWS = NEWS_EVENTS.map(n => n.headline).slice(0,8);
+  renderTicker();
+  return true;
+}
+NEWS_EVENTS = FALLBACK_NEWS.slice();
+S.selNews = FALLBACK_NEWS[0].id;
+renderNewsStrip();
+
+fetch('/api/news').then(r => r.ok ? r.json() : Promise.reject(0))
+  .then(l => adoptNews(l)).catch(() => {});
+
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.remove('on'); void t.offsetWidth; t.classList.add('on');
+}
+
+/* full reset so the RUN button can fire again and again */
+function resetRun(){
+  closeAct2(true);
+  clearTimeout(S.actTimer);
+  rail.innerHTML = ''; rowsById.clear(); openRow = null;
+  if(typer){ clearInterval(typer.h); typer = null; }
+  $$('#slip .slipline').forEach(n => n.remove()); live.length = 0;
+  $('#tomb').hidden = true;
+  $('#railHint').classList.remove('gone');
+  $('#railHint').textContent = 'provisioning sandbox …';
+  S.tally = {}; S.logLines = 0; S.accepted = false; S.attempt = 1;
+  S.burn = []; S.lastTok = 0; S.elapsed = 0; S.t0 = Date.now();
+  setTokens(0, true);
+  setCredits(CREDITS_MAX, true);
+  setPhase('spawning');
+  $('#sAttempt').textContent = 'ATTEMPT 1';
+  markPips(); initChecks();
+  const st = $('#stamp'); st.className = 'idle';
+  $('#stampTop').textContent = 'AWAITING VERDICT';
+  $('#stampMsg').textContent = ''; $('#stampRoute').hidden = true;
+  $('#judgeSub').textContent = 'deterministic verifier';
+  $('#totAfter').textContent = '—'; $('#totAfter').style.color = '';
+  $('#totDelta').className = 'totdelta';
+  if(S.portfolio) initTreemap(S.portfolio);
+}
+
+function setRunning(on){
+  S.running = on;
+  const b = $('#runBtn');
+  b.disabled = on;
+  b.classList.toggle('busy', on);
+  b.querySelector('.rbTxt').textContent = on ? 'RUNNING…' : 'RUN ANALYSIS';
+  b.querySelector('.rbIcon').textContent = on ? '◐' : '▶';
+}
+
+function triggerRun(){
+  if(S.running) return;
+  setRunning(true);                       // disable immediately — belt and braces
+  if(DEMO){ resetRun(); setTimeout(runDemo, 260); return; }
+
+  const news = NEWS_EVENTS.find(n => n.id === S.selNews) || NEWS_EVENTS[0];
+  resetRun();
+  // send the FULL object: an unknown news_id silently falls back to events[0]
+  fetch('/api/trigger', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(news ? {news} : {})
+  })
+  .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(r.status + ' ' + t)))
+  .catch(e => { toast('could not start run · ' + String(e).slice(0,60)); setRunning(false); });
+}
+
+$('#runBtn').onclick = triggerRun;
+
+$('#scanBtn').onclick = () => {
+  const b = $('#scanBtn');
+  if(b.classList.contains('busy')) return;
+  b.classList.add('busy');
+  fetch('/api/news/live')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(l => { adoptNews(l) ? toast('live scan · ' + NEWS_EVENTS.length + ' events') : toast('live scan returned nothing'); })
+    .catch(() => toast('live scan unavailable — keeping current wire'))
+    .then(() => b.classList.remove('busy'));
+};
+
+/* health probe keeps the button honest if a run was started elsewhere */
+if(!DEMO) setInterval(() => {
+  fetch('/api/health').then(r => r.json()).then(h => {
+    if(h && h.run && typeof h.run.active === 'boolean' && h.run.active !== S.running) setRunning(h.run.active);
+  }).catch(() => {});
+}, 3000);
+
+addEventListener('keydown', e => {
+  if(e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key;
+  if(k === ' ' || k === 'Spacebar'){ e.preventDefault(); closeAct2(); triggerRun(); return; }
+  if(!A2.open) { if(k === 'v' || k === 'V'){ e.preventDefault(); openAct2(S.lastResult || RESULT); } return; }
+  if(k === 'Escape'){ e.preventDefault(); if(!$('#a2detail').hidden || !$('#a2evpanel').hidden) closeDetail(); else closeAct2(); }
+  else if(k === 'a' || k === 'A'){ e.preventDefault(); closeAct2(); }
+  else if(k === 'ArrowRight'){ e.preventDefault(); stepCard(1); }
+  else if(k === 'ArrowLeft'){ e.preventDefault(); stepCard(-1); }
+});
+
+/* ══════════════════════════════════════════════════════════════════════
+   PART 2 · ACT II — THE VERDICT
+   ══════════════════════════════════════════════════════════════════════ */
+const A2 = { open:false, cards:[], order:[], sel:-1, timers:[], fall:null,
+             nodes:[], edges:[], adj:{}, cites:[], data:null };
+
+const after = (ms, fn) => A2.timers.push(setTimeout(fn, ms / SPEED));
+const clearBeats = () => { A2.timers.forEach(clearTimeout); A2.timers = []; };
+
+const splitIds = s => String(s || '').split(/\s*[\/,]\s*/).map(x => x.trim()).filter(Boolean);
+const clip = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+const dots = c => { const f = Math.round(Math.max(0, Math.min(1, c)) * 5);
+  return '<b>' + '●'.repeat(f) + '</b>' + '○'.repeat(5 - f); };
+
+function openAct2(d){
+  if(!d || !d.positions || A2.open) return;
+  A2.open = true; A2.data = d; A2.sel = -1;
+  clearBeats();
+
+  // impactColor normalises by module-level maxAbs; set it ourselves so Act II
+  // is correct even when opened directly (?act2=1 / V key) with no treemap run.
+  maxAbs = Math.max(0.01, ...d.positions.map(p => Math.abs(p.impact_pct || 0)));
+
+  $('#grid').classList.remove('back'); $('#hud').classList.remove('back');
+  $('#grid').classList.add('away');    $('#hud').classList.add('away');
+  $('#act2').hidden = false; $('#act2').classList.remove('closing');
+
+  buildHero(d);
+  const order = d.positions.slice().sort((a,b) => {
+    const za = Math.abs(a.impact_pct||0) < 1e-9, zb = Math.abs(b.impact_pct||0) < 1e-9;
+    if(za !== zb) return za ? 1 : -1;                       // zero-impact deal LAST
+    return Math.abs(b.impact_pct||0) - Math.abs(a.impact_pct||0);
+  });
+  A2.order = order;
+  matchCitations(d, order);
+
+  const chainMs = buildChain(d, order);                     // BEAT 1
+  after(chainMs + 260, () => dealCards(order, d));          // BEAT 2
+  after(chainMs + 260 + order.length * 300 + 420, () => buildFall(order, d)); // BEAT 3
+}
+
+function closeAct2(instant){
+  if(!A2.open) return;
+  A2.open = false; clearBeats(); closeDetail();
+  const a = $('#act2');
+  if(instant){ a.hidden = true; a.classList.remove('closing'); }
+  else {
+    a.classList.add('closing');
+    setTimeout(() => { a.hidden = true; a.classList.remove('closing'); }, 460);
+  }
+  $('#grid').classList.remove('away'); $('#hud').classList.remove('away');
+  $('#grid').classList.add('back');    $('#hud').classList.add('back');
+}
+
+/* ── hero ─────────────────────────────────────────────────────── */
+function buildHero(d){
+  $('#a2thesis').textContent = d.thesis || d.headline || '';
+  $('#a2method').textContent = (d.methodology || 'analysis').replace(/_/g,' ');
+  const n = (d.citations || []).length;
+  $('#a2evidence').textContent = 'EVIDENCE ×' + n;
+  $('#a2evidence').onclick = () => openEvidence(d);
+
+  const pct = d.portfolio_impact_pct ?? 0, usd = d.portfolio_impact_usd ?? 0;
+  const before = d.portfolio_value_before_usd ?? (S.portfolio ? S.portfolio.total_value_usd : 0);
+  const p = $('#a2pct');
+  p.textContent = fmtPct(pct);
+  p.style.color = pct < 0 ? 'var(--red)' : 'var(--green)';
+  $('#a2usd').textContent = fmtUSD(before) + '  →  ' + fmtUSD(before + usd);
+
+  const c = Math.max(0, Math.min(1, d.confidence ?? 0));
+  $('#a2confNum').textContent = c.toFixed(2);
+  $('#a2confBar').style.transform = 'scaleX(0)';
+  after(240, () => $('#a2confBar').style.transform = 'scaleX(' + c + ')');
+}
+
+/* ── BEAT 1 · the chain draws itself ──────────────────────────── */
+function buildChain(d, order){
+  const host = $('#a2chain'), fx = $('#a2effects');
+  host.innerHTML = ''; fx.innerHTML = '';
+  A2.nodes = []; A2.edges = []; A2.adj = {};
+
+  const mech = Array.isArray(d.mechanism) ? d.mechanism : [];
+  if(!mech.length){ $('#a2chainSub').textContent = 'no mechanism supplied'; return 300; }
+
+  const tickers = new Set(d.positions.map(p => p.ticker));
+  const links = [];
+  mech.forEach(m => splitIds(m.from).forEach(f =>
+    splitIds(m.to).forEach(t => { if(f !== t) links.push({s:f, t:t, effect:m.effect || ''}); })));
+  if(!links.length){ $('#a2chainSub').textContent = 'no mechanism supplied'; return 300; }
+
+  const layer = new Map();
+  links.forEach(l => { layer.set(l.s, 0); layer.set(l.t, 0); });
+  for(let i = 0; i < 14; i++){
+    let ch = false;
+    links.forEach(l => { const n = layer.get(l.s) + 1; if(n > layer.get(l.t)){ layer.set(l.t, n); ch = true; } });
+    if(!ch) break;
+  }
+  // every portfolio ticker collapses into ONE column, then PORTFOLIO
+  let maxMid = 0;
+  layer.forEach((v, k) => { if(!tickers.has(k)) maxMid = Math.max(maxMid, v); });
+  layer.forEach((v, k) => { if(tickers.has(k)) layer.set(k, maxMid + 1); });
+  const BOOK = 'PORTFOLIO';
+  layer.set(BOOK, maxMid + 2);
+  const hasOut = new Set(links.map(l => l.s));
+  Array.from(layer.keys()).forEach(k => {
+    if(k === BOOK) return;
+    if(tickers.has(k) || !hasOut.has(k)) links.push({s:k, t:BOOK, effect:''});
+  });
+  links.forEach(l => (A2.adj[l.s] = A2.adj[l.s] || []).push(l.t));
+
+  /* layout */
+  const cols = {};
+  layer.forEach((v, k) => (cols[v] = cols[v] || []).push(k));
+  const keys = Object.keys(cols).map(Number).sort((a,b) => a-b);
+  const W = host.clientWidth || 900, H = host.clientHeight || 260;
+  const maxCh = keys.length <= 4 ? 22 : keys.length <= 5 ? 19 : 15;
+  const wOf = k => k === BOOK ? 132 : tickers.has(k) ? 74 : Math.min(196, clip(k, maxCh).length * 7.6 + 24);
+
+  const colW = keys.map(k => Math.max(...cols[k].map(wOf)));
+  const sum = colW.reduce((a,b) => a+b, 0);
+  const gap = keys.length > 1 ? Math.max(10, (W - 24 - sum) / (keys.length - 1)) : 0;
+  let x = 12 + colW[0] / 2;
+  const pos = {};
+  keys.forEach((k, ci) => {
+    if(ci) x += colW[ci-1]/2 + gap + colW[ci]/2;
+    const list = cols[k];
+    // >5 in a column (the ticker stack) fans into two sub-columns
+    const two = list.length > 5, per = two ? Math.ceil(list.length/2) : list.length;
+    list.forEach((id, i) => {
+      const sub = two ? Math.floor(i/per) : 0, idx = two ? i % per : i;
+      const n = two ? (sub === 0 ? per : list.length - per) : list.length;
+      pos[id] = { x: x + (two ? (sub ? 40 : -40) : 0), y: H * (idx + 1) / (n + 1) };
+    });
+  });
+
+  const kind = k => k === BOOK ? 'book' : tickers.has(k) ? 'tick'
+                  : (layer.get(k) === 0 ? 'news' : 'mid');
+
+  /* nodes */
+  const STEP = 190;
+  Array.from(layer.keys()).forEach(k => {
+    const n = el('div', 'cn ' + kind(k), esc(k === BOOK ? '◆ PORTFOLIO' : clip(k, maxCh)));
+    n.style.left = pos[k].x + 'px'; n.style.top = pos[k].y + 'px';
+    n.style.animationDelay = (layer.get(k) * STEP / SPEED) + 'ms';
+    n.dataset.id = k;
+    if(kind(k) === 'tick'){
+      const p = d.positions.find(p => p.ticker === k);
+      if(p && Math.abs(p.impact_pct||0) > 1e-9){
+        n.style.borderColor = impactColor(p.impact_pct);
+        n.style.color = impactColor(p.impact_pct);
+      }
+    }
+    n.onclick = () => litPath(k);
+    host.appendChild(n); A2.nodes.push(n);
+  });
+
+  /* edges — rotated divs grown with scaleX: a real line-draw, transform only */
+  links.forEach(l => {
+    const a = pos[l.s], b = pos[l.t]; if(!a || !b) return;
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+    const e = el('div', 'ce');
+    e.style.left = a.x + 'px'; e.style.top = a.y + 'px';
+    e.style.width = len + 'px';
+    e.style.setProperty('--a', (Math.atan2(dy, dx) * 180 / Math.PI) + 'deg');
+    e.style.animationDelay = ((layer.get(l.s) + 0.55) * STEP / SPEED) + 'ms';
+    e.dataset.s = l.s; e.dataset.t = l.t;
+    host.appendChild(e); A2.edges.push(e);
+  });
+
+  /* the effect text lands with its edge */
+  mech.forEach((m, i) => after((layer.get(splitIds(m.from)[0]) ?? i) * STEP + 300 + i * 90, () => {
+    fx.appendChild(el('div', 'efx',
+      `<i>${esc(clip(m.from, 26))}</i> → <u>${esc(clip(m.to, 22))}</u> · ${esc(m.effect || '')}`));
+    while(fx.children.length > 6) fx.firstElementChild.remove();
+  }));
+
+  $('#a2chainSub').textContent = `${Array.from(layer.keys()).length} nodes · ${mech.length} links`;
+  return (keys.length + 1) * STEP + 300;
+}
+
+function litPath(id){
+  const seen = new Set([id]), q = [id];
+  while(q.length){ const n = q.shift(); (A2.adj[n]||[]).forEach(m => { if(!seen.has(m)){ seen.add(m); q.push(m); } }); }
+  const all = A2.nodes.every(n => n.classList.contains('lit')) ;
+  const already = A2.nodes.length && A2.nodes.filter(n => n.classList.contains('lit')).length &&
+                  A2.nodes.find(n => n.dataset.id === id && n.classList.contains('lit'));
+  if(already){ clearLit(); return; }
+  A2.nodes.forEach(n => {
+    const on = seen.has(n.dataset.id);
+    n.classList.toggle('lit', on); n.classList.toggle('faded', !on);
+  });
+  A2.edges.forEach(e => {
+    const on = seen.has(e.dataset.s) && seen.has(e.dataset.t);
+    e.classList.toggle('lit', on); e.classList.toggle('faded', !on);
+  });
+  A2.cards.forEach(c => {
+    const on = seen.has(c.dataset.ticker);
+    c.classList.toggle('raised', on); c.classList.toggle('dimmed', !on);
+  });
+}
+function clearLit(){
+  A2.nodes.forEach(n => n.classList.remove('lit','faded'));
+  A2.edges.forEach(e => e.classList.remove('lit','faded'));
+  A2.cards.forEach(c => c.classList.remove('raised','dimmed'));
+}
+
+/* ── citations ────────────────────────────────────────────────── */
+function matchCitations(d, order){
+  const cites = (d.citations || []).map(c => Object.assign({}, c));
+  A2.cites = cites; A2.byTicker = {};
+  order.forEach(p => {
+    const name = (S.portfolio && (S.portfolio.positions.find(x => x.ticker === p.ticker)||{}).name) || '';
+    const stem = name.split(/[ ,.]/)[0];
+    const hit = cites.find(c => !c._used && (
+      new RegExp('\\b' + p.ticker + '\\b').test(c.claim || '') ||
+      (stem.length > 3 && (c.claim || '').toLowerCase().includes(stem.toLowerCase()))));
+    if(hit){ hit._used = true; A2.byTicker[p.ticker] = hit; }
+  });
+}
+const host = u => { try{ return new URL(u).host.replace(/^www\./,''); }catch(_){ return String(u||'').slice(0,42); } };
+
+/* ── BEAT 2 · the cards deal out ──────────────────────────────── */
+function dealCards(order, d){
+  const box = $('#a2cards'); box.innerHTML = ''; A2.cards = [];
+  const top = order[0] ? order[0].ticker : null;
+
+  order.forEach((p, i) => {
+    const zero = Math.abs(p.impact_pct || 0) < 1e-9;
+    const pp = (p.weight_pct / 100) * p.impact_pct;
+    const cite = A2.byTicker[p.ticker];
+    const c = el('div', 'a2card' + (zero ? ' zero' : ''),
+      `${(!zero && p.ticker === top) ? '<span class="cFlag">TOP IMPACT</span>' : ''}
+       <div class="cTop">
+         <span class="cTk">${esc(p.ticker)}</span>
+         <span class="cSec">${esc(p.sector || '')}</span>
+         <span class="cImp">${fmtPct(p.impact_pct)}</span>
+       </div>
+       <div class="cConf"><span class="cDots">${dots(p.confidence)}</span>
+         <span class="cCn">${Number(p.confidence ?? 0).toFixed(2)}</span></div>
+       <div class="cNil">no material exposure</div>
+       <div class="cRat">${esc(p.rationale || '')}</div>
+       <div class="cMath"><em>w</em> ${p.weight_pct.toFixed(2)}% <em>×</em> ${fmtPct(p.impact_pct)} <em>=</em> ${pp>=0?'+':''}${pp.toFixed(2)}pp</div>
+       <div class="cCite">${cite ? '&#128279; ' + esc(host(cite.url)) : ''}</div>`);
+    c.style.animationDelay = (i * 300 / SPEED) + 'ms';
+    c.dataset.ticker = p.ticker;
+    c.style.borderLeftColor = zero ? 'var(--surface2)' : impactColor(p.impact_pct);
+    c.querySelector('.cImp').style.color = zero ? 'var(--overlay)' : impactColor(p.impact_pct);
+    c.onclick = () => openDetail(i);
+    box.appendChild(c); A2.cards.push(c);
+  });
+}
+
+/* ── BEAT 3 · the waterfall assembles ─────────────────────────── */
+function buildFall(order, d){
+  const host = $('#a2fall');
+  if(!A2.fall){ A2.fall = echarts.init(host, null, {renderer:'canvas'}); A2.fall.on('click', p => {
+    const i = order.findIndex(o => o.ticker === p.name); if(i >= 0) selectCard(i, true);
+  }); }
+  const cats = ['START'].concat(order.map(p => p.ticker)).concat(['Σ TOTAL']);
+  const contrib = order.map(p => (p.weight_pct / 100) * p.impact_pct);
+  const total = contrib.reduce((a,b) => a+b, 0);
+
+  const base = [], val = [], col = [];
+  let run = 0;
+  base.push(0); val.push(0); col.push('transparent');
+  contrib.forEach(c => {
+    const from = run, to = run + c;
+    base.push(Math.min(from, to)); val.push(Math.abs(c));
+    col.push(c === 0 ? '#45475a' : impactColor(c));
+    run = to;
+  });
+  base.push(Math.min(0, total)); val.push(Math.abs(total)); col.push('#cba6f7');
+
+  const mono = 'JetBrains Mono,monospace';
+  A2.fall.setOption({
+    animationDuration: 420, animationEasing:'cubicOut',
+    grid:{left:64, right:16, top:26, bottom:56},
+    xAxis:{ type:'category', data:cats,
+      axisLabel:{color:'#a6adc8', fontSize:14.5, fontFamily:mono, interval:0, rotate:36},
+      axisLine:{lineStyle:{color:'rgba(205,214,244,.18)'}}, axisTick:{show:false} },
+    yAxis:{ type:'value', axisLabel:{color:'#6c7086', fontSize:14, fontFamily:mono,
+        formatter: v => v.toFixed(1) + '%' },
+      splitLine:{lineStyle:{color:'rgba(205,214,244,.07)'}} },
+    series:[
+      {name:'b', type:'bar', stack:'w', silent:true, itemStyle:{color:'transparent'},
+       barWidth:'62%', data:[]},
+      {name:'v', type:'bar', stack:'w', barWidth:'62%', data:[]}
+    ]
+  });
+
+  let k = 0, shown = 0;
+  const stepMs = 230;
+  const tick = () => {
+    k++;
+    const dv = val.slice(0, k).map((v, i) => ({ value: v, itemStyle:{ color: col[i], borderRadius:3 } }));
+    A2.fall.setOption({ series:[{ data: base.slice(0, k) }, { data: dv }] });
+    if(k > 1 && k <= contrib.length + 1) shown += contrib[k-2];
+    if(k === contrib.length + 2) shown = total;
+    const r = $('#a2running');
+    r.textContent = (shown >= 0 ? '+' : '') + shown.toFixed(2) + '%';
+    r.style.color = shown < 0 ? 'var(--red)' : 'var(--green)';
+    if(k < base.length) after(stepMs, tick);
+    else after(300, () => {
+      r.textContent = fmtPct(d.portfolio_impact_pct ?? total);
+      $('#a2chainSub').textContent += ' · click a node';
+    });
+  };
+  after(120, tick);
+}
+
+/* ── BEAT 4 · interactive ─────────────────────────────────────── */
+function selectCard(i, raiseOnly){
+  A2.sel = i;
+  A2.cards.forEach((c, j) => { c.classList.toggle('raised', j === i); c.classList.toggle('dimmed', false); });
+  if(!raiseOnly) openDetail(i);
+}
+function stepCard(dir){
+  if(!A2.order.length) return;
+  const n = A2.order.length;
+  A2.sel = ((A2.sel < 0 ? (dir > 0 ? -1 : 0) : A2.sel) + dir + n) % n;
+  selectCard(A2.sel);
+}
+function closeDetail(){ $('#a2detail').hidden = true; $('#a2evpanel').hidden = true; }
+
+function openDetail(i){
+  const p = A2.order[i]; if(!p) return;
+  A2.sel = i;
+  A2.cards.forEach((c, j) => c.classList.toggle('raised', j === i));
+  const pp = (p.weight_pct / 100) * p.impact_pct;
+  const cite = A2.byTicker[p.ticker];
+  const col = Math.abs(p.impact_pct) < 1e-9 ? 'var(--overlay)' : impactColor(p.impact_pct);
+  const d = $('#a2evpanel'); d.hidden = true;
+  const b = $('#a2detail');
+  b.innerHTML =
+    `<div class="dTop">
+       <span class="dTk">${esc(p.ticker)}</span>
+       <span class="dSec">${esc(p.sector || '')}</span>
+       <span class="dImp" style="color:${col}">${fmtPct(p.impact_pct)}</span>
+     </div>
+     <div class="a2conf" style="max-width:520px">
+       <span class="a2clab">CONFIDENCE</span>
+       <span class="a2meter"><b style="transform:scaleX(${Math.max(0,Math.min(1,p.confidence??0))})"></b></span>
+       <span class="a2cnum">${Number(p.confidence ?? 0).toFixed(2)}</span>
+     </div>
+     <div class="dRat">${esc(p.rationale || 'no rationale supplied')}</div>
+     <div class="dMath"><em>weight</em> ${p.weight_pct.toFixed(2)}%
+       <em>×</em> ${fmtPct(p.impact_pct)} <em>=</em> ${pp>=0?'+':''}${pp.toFixed(3)}pp
+       <em>&nbsp;·&nbsp;</em> ${fmtUSD(p.impact_usd ?? 0)}</div>
+     ${cite ? `<div class="dCite"><div class="cl">&#128279; ${esc(cite.claim || '')}</div>
+        <div class="cu">${esc(cite.source ? cite.source + ' · ' : '')}${esc(cite.url || '')}</div></div>` : ''}
+     <div class="dNav">← → step companies · ESC close · ${i+1} of ${A2.order.length}</div>`;
+  b.hidden = false;
+  b.classList.remove('x'); void b.offsetWidth;
+  b.onclick = closeDetail;
+}
+
+function openEvidence(d){
+  $('#a2detail').hidden = true;
+  const b = $('#a2evpanel');
+  const cs = d.citations || [];
+  b.innerHTML = `<div class="evTitle">EVIDENCE · ${cs.length} CITATION${cs.length===1?'':'S'}</div>` +
+    cs.map(c => `<div class="evRow"><div class="cl">${esc(c.claim || '')}</div>
+      <div class="cu">${esc(c.source ? c.source + ' · ' : '')}${esc(c.url || '')}${c.published_at ? ' · ' + esc(c.published_at) : ''}</div></div>`).join('') ||
+    '<div class="evRow"><div class="cl">no citations supplied</div></div>';
+  b.hidden = false;
+  b.onclick = closeDetail;
+}
+
+/* charts inside Act II must resize with the stage too */
+addEventListener('resize', () => { if(A2.fall) A2.fall.resize(); });
+
+/* manual test hook: ?act2=1 jumps straight in with the canned payload */
+if(Q.get('act2') === '1') setTimeout(() => openAct2(RESULT), 400);
 
 })();

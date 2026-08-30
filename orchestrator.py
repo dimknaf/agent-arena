@@ -96,6 +96,11 @@ PROVISION_SCRIPT = (
 MAX_ATTEMPTS = 4
 WALL_CLOCK_BUDGET_S = 6 * 60  # 6 minutes total, all attempts
 ATTEMPT_POLL_INTERVAL_S = 2.0
+# Printed by every session command so we can detect completion ourselves; see the long
+# comment in _run_session_command for why the API's exit_code cannot be trusted alone.
+DONE_SENTINEL = "__ARENA_CMD_DONE__"
+# If the log stream goes quiet for this long, re-read the log non-streaming.
+IDLE_WATCHDOG_S = 45.0
 
 # Sandbox paths. The schema deliberately lives OUTSIDE `-C /work` so the agent's
 # workspace root cannot reach it -> it cannot rewrite its own contract.
@@ -933,10 +938,14 @@ class Orchestrator:
         try:
             await sandbox.update_network_settings(domain_allow_list=allow_list)
         except Exception as exc:
-            # Never silently claim a lock we do not have.
+            # Never silently claim a lock we do not have -- but do not overclaim the
+            # opposite either. Measured: this org returns "Network access is restricted
+            # and cannot be overridden", i.e. the platform imposes its own policy that
+            # we are not permitted to replace. Report what it actually said.
+            msg = str(getattr(exc, "message", "") or exc)
             await self.emit_tool(
-                "SYSTEM", "EGRESS LOCK FAILED - sandbox is OPEN",
-                detail=repr(exc)[:120], status="fail", body=repr(exc)[:500],
+                "SYSTEM", "EGRESS LOCK REJECTED BY PLATFORM",
+                detail=msg[:140], status="fail", body=msg[:500],
             )
             return
         await self.emit_tool(
@@ -1054,14 +1063,44 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
         """
         from daytona import SessionExecuteRequest
 
+        # COMPLETION DETECTION -- do not rely on get_session_command().exit_code alone.
+        # Measured live: while a follow-websocket is attached to a command's logs, the
+        # API keeps returning exit_code=None indefinitely (600s observed for a command
+        # that finished in ~40s), with no error. The identical poll works when no
+        # websocket is attached. So we append our own sentinel and treat that as truth,
+        # keeping the API poll only as a secondary signal.
+        wrapped = f"( {command} ); echo \"{DONE_SENTINEL}:$?\""
+
         resp = await sandbox.process.execute_session_command(
-            session_id, SessionExecuteRequest(command=command, run_async=True)
+            session_id, SessionExecuteRequest(command=wrapped, run_async=True)
         )
         cmd_id = getattr(resp, "cmd_id", None) or getattr(resp, "id", None)
         if not cmd_id:
             raise RuntimeError(f"Daytona did not return a command id: {resp!r}")
 
         queue: asyncio.Queue = asyncio.Queue()
+        done: asyncio.Future = asyncio.get_running_loop().create_future()
+        last_output = [time.monotonic()]
+
+        def _finish(code: int) -> None:
+            if not done.done():
+                done.set_result(code)
+
+        def _scan_sentinel(text: str) -> Optional[int]:
+            """Return the exit code if `text` carries our sentinel."""
+            if DONE_SENTINEL not in text:
+                return None
+            tail = text.split(DONE_SENTINEL, 1)[1].lstrip(":").strip()
+            digits = ""
+            for ch in tail:
+                if ch.isdigit() or (ch == "-" and not digits):
+                    digits += ch
+                else:
+                    break
+            try:
+                return int(digits)
+            except ValueError:
+                return 0
 
         # CRITICAL: these callbacks must never block - put_nowait and return.
         async def on_stdout(chunk: str) -> None:
@@ -1085,9 +1124,14 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
         async def consume() -> None:
             while True:
                 which, chunk = await queue.get()
+                last_output[0] = time.monotonic()
                 buffers[which] += chunk
                 while "\n" in buffers[which]:
                     line, buffers[which] = buffers[which].split("\n", 1)
+                    code = _scan_sentinel(line)
+                    if code is not None:
+                        _finish(code)
+                        continue  # never surface the sentinel to the UI
                     await self.handle_raw_line(which, line)
 
         stream_task = asyncio.create_task(stream())
@@ -1099,6 +1143,17 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                 if time.monotonic() > deadline:
                     await self.emit_log("stderr", "[orchestrator] wall-clock budget exhausted")
                     break
+
+                # 1) primary: our sentinel, seen in the stream (reacts within one tick)
+                try:
+                    exit_code = await asyncio.wait_for(
+                        asyncio.shield(done), timeout=ATTEMPT_POLL_INTERVAL_S
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    pass
+
+                # 2) secondary: the API's own exit code, if it ever materialises
                 try:
                     cmd = await sandbox.process.get_session_command(session_id, cmd_id)
                     code = getattr(cmd, "exit_code", None)
@@ -1107,14 +1162,40 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                         break
                 except Exception as exc:
                     await self.emit_log("stderr", f"[orchestrator] poll failed: {exc!r}")
-                await asyncio.sleep(ATTEMPT_POLL_INTERVAL_S)
+
+                # 3) watchdog: if the stream has gone quiet the websocket may have died
+                #    without raising. Re-read the log non-streaming and look for the
+                #    sentinel there before assuming the command is still running.
+                if time.monotonic() - last_output[0] > IDLE_WATCHDOG_S:
+                    last_output[0] = time.monotonic()
+                    try:
+                        logs = await sandbox.process.get_session_command_logs(session_id, cmd_id)
+                        blob = " ".join(
+                            str(getattr(logs, attr, "") or "")
+                            for attr in ("output", "stdout", "stderr")
+                        )
+                        code = _scan_sentinel(blob)
+                        if code is not None:
+                            await self.emit_log(
+                                "stderr",
+                                "[orchestrator] stream went quiet; recovered exit code from log fetch",
+                            )
+                            exit_code = code
+                            break
+                    except Exception as exc:
+                        await self.emit_log("stderr", f"[orchestrator] log refetch failed: {exc!r}")
         finally:
-            # give the stream a moment to flush the tail, then tear both down
-            await asyncio.sleep(1.5)
+            # Give the stream a moment to flush the tail, then tear both down. Every
+            # await here is bounded: a websocket that will not close must never be able
+            # to hang the run.
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(asyncio.sleep(1.5), timeout=3)
             for task in (stream_task, consume_task):
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+            with contextlib.suppress(Exception):
+                await asyncio.wait(
+                    {stream_task, consume_task}, timeout=5
+                )  # abandon stragglers rather than await them forever
             for which, leftover in buffers.items():
                 if leftover.strip():
                     await self.handle_raw_line(which, leftover)
