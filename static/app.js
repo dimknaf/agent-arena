@@ -39,12 +39,21 @@ const S = {
 };
 
 /* token counter is monotonic: whichever is larger, the authoritative
-   state.tokens_total or the running sum of per-tool token costs. */
-function setTokens(n){
-  if(!(n > S.tokens)) return;
+   state.tokens_total or the running sum of per-tool token costs.
+   `force` is the escape hatch resetRun() uses to start a second run. */
+function setTokens(n, force){
+  if(!force && !(n > S.tokens)) return;
   S.tokens = n;
   $('#sTok').textContent = fmtTok(n) + ' tok';
-  setCredits(CREDITS_MAX - n / 12);
+  setCredits(CREDITS_MAX - n / 12, force);
+}
+
+/* create-element helper — every builder below uses it */
+function el(tag, cls, html){
+  const n = document.createElement(tag);
+  if(cls) n.className = cls;
+  if(html != null) n.innerHTML = html;
+  return n;
 }
 const CREDITS_MAX = 1000;
 
@@ -413,8 +422,10 @@ buildPips(4);
 
 const SEGS = 20;
 (() => { const b = $('#credBar'); for(let i=0;i<SEGS;i++){ const s=document.createElement('div'); s.className='cseg'; b.appendChild(s);} })();
-function setCredits(c){
-  S.credits = Math.max(0, Math.min(S.credits, Math.round(c))); // drains only
+function setCredits(c, force){
+  // drains only, unless a new run explicitly resets it
+  S.credits = force ? Math.max(0, Math.round(c))
+                    : Math.max(0, Math.min(S.credits, Math.round(c)));
   $('#credNum').textContent = S.credits;
   const on = Math.ceil(SEGS * S.credits / CREDITS_MAX);
   const cls = S.credits < CREDITS_MAX*0.2 ? 'crit' : S.credits < CREDITS_MAX*0.45 ? 'warn' : '';
@@ -488,6 +499,12 @@ function onResult(ev){
   if(d.budget && typeof d.budget.codex_credits_used === 'number')
     setCredits(CREDITS_MAX - d.budget.codex_credits_used);
   $('#judgeSub').textContent = d.methodology ? d.methodology.replace(/_/g,' ') : 'deterministic verifier';
+
+  /* ACT II — after the stamp, the confetti and the treemap recolour have all
+     landed (repaintTreemap needs ~2.0s: 115ms stagger + tail). */
+  S.lastResult = d;
+  clearTimeout(S.actTimer);
+  S.actTimer = setTimeout(() => openAct2(d), 2600 / SPEED);
 }
 
 function handle(ev){

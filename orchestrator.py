@@ -24,6 +24,7 @@ import inspect
 import json
 import os
 import shlex
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -41,6 +42,55 @@ RUNS_DIR = REPO_ROOT / "runs"
 SCHEMA_PATH = REPO_ROOT / "verifier" / "impact.schema.json"
 
 SNAPSHOT_NAME = os.environ.get("DAYTONA_SNAPSHOT", "quant-agent-v1")
+
+# --- provisioning fallback --------------------------------------------------
+# The hackathon API key can READ snapshots but POST /snapshots returns 403, so the
+# baked snapshot may not exist. We fall back to a plain base image and provision at
+# runtime. Measured cold path: ~16s total (create 0.6s, codex 4.2s, python 10.3s).
+#
+# node:22-bookworm chosen over python:3.11-slim-bookworm because it already ships
+# Python 3.11.2 AND node 22, so neither runtime needs an apt install of the other --
+# only pip itself is missing. Verified live.
+BASE_IMAGE = os.environ.get("DAYTONA_BASE_IMAGE", "node:22-bookworm")
+FORCE_BASE_IMAGE = os.environ.get("AGENT_ARENA_FORCE_BASE_IMAGE", "").lower() in (
+    "1", "true", "yes", "on",
+)
+
+# MUST match what skills/portfolio-impact/SKILL.md tells the agent:
+#   sys.path.insert(0, "/opt/kit"); import parallel_client, sec_client
+# A mismatch here does not fail loudly -- the agent silently falls back to raw
+# requests/curl, losing the Parallel client, the SEC User-Agent guard (a bare EDGAR
+# call gets 403 + a ~10 minute IP block) and get_call_count() budget telemetry.
+REMOTE_KIT_DIR = "/opt/kit"
+# Codex discovers skills at $CWD/.agents/skills, $REPO_ROOT/.agents/skills,
+# $HOME/.agents/skills and /etc/codex/skills. Anywhere else is silently ignored.
+REMOTE_SKILLS_DIR = "/etc/codex/skills"
+
+# Proves the agent's tools are actually reachable, rather than assuming.
+KIT_VERIFY_CMD = (
+    "ls -la /etc/codex/skills/ 2>&1 | tail -5; "
+    "ls -la /opt/kit/ 2>&1 | tail -5; "
+    "python3 -c \"import sys; sys.path.insert(0,'/opt/kit'); "
+    "import parallel_client, sec_client; print('kit imports OK')\""
+)
+
+# One shell command, so the whole provision is a single streamed session command.
+# `--break-system-packages` is required: Debian bookworm marks its Python as
+# externally managed (PEP 668) and pip refuses to install without it.
+PROVISION_SCRIPT = (
+    "set -e; "
+    "mkdir -p /root/.codex && chmod 700 /root/.codex; "
+    "echo '>>> installing codex-cli'; "
+    "npm i -g @openai/codex; "
+    "echo '>>> ensuring python toolchain'; "
+    "python3 -m pip --version >/dev/null 2>&1 || "
+    "{ apt-get update -qq && apt-get install -y -qq python3-pip; }; "
+    "python3 -m pip install --quiet --break-system-packages "
+    "numpy pandas requests jsonschema python-dateutil; "
+    "echo '>>> versions'; "
+    "codex --version; "
+    "python3 -c \"import pandas,numpy;print('pandas',pandas.__version__,'numpy',numpy.__version__)\""
+)
 
 # --- run policy -------------------------------------------------------------
 MAX_ATTEMPTS = 4
@@ -705,6 +755,195 @@ class Orchestrator:
             for up in uploads:
                 await sandbox.fs.upload_file(up.source, up.destination)
 
+    async def _create_sandbox(self, daytona, env_vars: dict) -> tuple[Any, bool]:
+        """Create the sandbox. Returns (sandbox, needs_provision).
+
+        Fast path: the pre-baked `quant-agent-v1` snapshot. If snapshot creation is
+        unavailable -- the hackathon key gets 403 on POST /snapshots, so the snapshot
+        may simply not exist -- fall back to a plain base image and provision at
+        runtime (~16s measured). Set AGENT_ARENA_FORCE_BASE_IMAGE=1 to skip the
+        snapshot attempt entirely; unset it to flip back to the fast path with no
+        code change once the key is fixed.
+        """
+        from daytona import CreateSandboxFromImageParams, CreateSandboxFromSnapshotParams
+
+        # NOTE: created UNLOCKED on purpose. Provisioning needs the npm registry and
+        # apt; the agent must not. `_lock_egress()` applies the allow list via
+        # update_network_settings immediately before the first codex run.
+        common = dict(
+            auto_stop_interval=0,  # never let it idle-die mid-run
+            auto_archive_interval=0,
+            ttl_minutes=SANDBOX_TTL_MINUTES,  # safety net if the host process dies
+            env_vars=env_vars,
+            labels={"app": "agent-arena", "run_id": self.run_id},
+        )
+
+        async def _create(make_params, timeout: int):
+            return await daytona.create(make_params(), timeout=timeout)
+
+        if not FORCE_BASE_IMAGE:
+            try:
+                sandbox = await _create(
+                    lambda: CreateSandboxFromSnapshotParams(
+                        snapshot=SNAPSHOT_NAME, **common
+                    ),
+                    180,
+                )
+                await self.emit_tool(
+                    "SYSTEM", f"sandbox {getattr(sandbox, 'id', '?')}",
+                    detail=f"snapshot {SNAPSHOT_NAME}", status="ok",
+                )
+                return sandbox, False
+            except Exception as exc:
+                await self.emit_tool(
+                    "SYSTEM", "snapshot unavailable - provisioning from base image",
+                    detail=SNAPSHOT_NAME, status="fail", body=repr(exc)[:400],
+                )
+        else:
+            await self.emit_tool(
+                "SYSTEM", "provisioning from base image",
+                detail="AGENT_ARENA_FORCE_BASE_IMAGE=1", status="ok",
+            )
+
+        sandbox = await _create(
+            lambda: CreateSandboxFromImageParams(image=BASE_IMAGE, **common),
+            300,
+        )
+        await self.emit_tool(
+            "SYSTEM", f"sandbox {getattr(sandbox, 'id', '?')}",
+            detail=f"base image {BASE_IMAGE}", status="ok",
+        )
+        return sandbox, True
+
+    async def _provision_base_image(self, sandbox, session_id: str, deadline: float) -> None:
+        """Install codex-cli + the Python stack on a bare base image.
+
+        Streams output so the screen shows a live PROVISIONING beat instead of
+        sitting silent. Measured ~15s on node:22-bookworm.
+        """
+        t0 = time.monotonic()
+        await self.emit_tool(
+            "SYSTEM", "installing codex-cli and python stack",
+            detail=BASE_IMAGE, status="running",
+        )
+        exit_code = await self._run_session_command(
+            sandbox, session_id, PROVISION_SCRIPT, deadline
+        )
+        secs = time.monotonic() - t0
+
+        # The script echoes `codex --version` and the pandas/numpy versions; recover
+        # them from the tail of the streamed output for the rail row.
+        versions = [
+            ln for ln in self.state.plain_lines[-40:]
+            if "codex-cli" in ln or ln.strip().startswith("[stdout] pandas")
+        ]
+        detail = " | ".join(v.split("] ", 1)[-1] for v in versions[-2:]) or f"{secs:.0f}s"
+
+        if exit_code != 0:
+            await self.emit_tool(
+                "SYSTEM", "provisioning FAILED", detail=f"exit {exit_code} after {secs:.0f}s",
+                status="fail",
+            )
+            raise RuntimeError(
+                f"Base-image provisioning failed (exit {exit_code}). The sandbox has no "
+                f"codex-cli, so the run cannot continue. Check that {BASE_IMAGE} can reach "
+                "the npm registry through the domain allow list."
+            )
+
+        await self.emit_tool(
+            "SYSTEM", "sandbox ready", detail=f"{detail} in {secs:.0f}s", status="ok",
+        )
+
+    async def _upload_agent_assets(self, sandbox) -> None:
+        """Upload kit/ and skills/ that the snapshot would otherwise have baked in.
+
+        Files are uploaded individually rather than via a directory helper: the SDK's
+        Image context path handling is what bit us on Windows, and per-file uploads
+        keep the remote layout explicit.
+        """
+        for local_name, remote_root in (("kit", REMOTE_KIT_DIR), ("skills", REMOTE_SKILLS_DIR)):
+            src = REPO_ROOT / local_name
+            if not src.is_dir():
+                continue
+            files = [
+                p for p in sorted(src.rglob("*"))
+                if p.is_file()
+                and "__pycache__" not in p.parts
+                and p.suffix not in (".pyc", ".pyo")
+            ]
+            if not files:
+                continue
+            with contextlib.suppress(Exception):
+                await sandbox.fs.create_folder(remote_root, "755")
+            uploaded = 0
+            for f in files:
+                rel = f.relative_to(src).as_posix()  # POSIX: never Windows backslashes
+                try:
+                    await sandbox.fs.upload_file(f.read_bytes(), f"{remote_root}/{rel}")
+                    uploaded += 1
+                except Exception as exc:
+                    await self.emit_log("stderr", f"[orchestrator] upload {rel} failed: {exc!r}")
+            await self.emit_tool(
+                "SYSTEM", f"{local_name} uploaded",
+                detail=f"{uploaded} file(s) -> {remote_root}", status="ok",
+            )
+
+    async def _verify_agent_assets(self, sandbox, session_id: str, deadline: float) -> None:
+        """Prove kit/ and the skill are actually reachable by the agent.
+
+        If the skill is not discovered, the agent runs without our methodology and the
+        reconciliation rule -- which is the whole demo -- so we check rather than assume.
+        Non-fatal: we report loudly and continue, since the prompt also authorises raw
+        HTTP as a fallback.
+        """
+        before = len(self.state.plain_lines)
+        exit_code = await self._run_session_command(
+            sandbox, session_id, KIT_VERIFY_CMD, min(deadline, time.monotonic() + 60)
+        )
+        output = "\n".join(
+            ln.split("] ", 1)[-1] for ln in self.state.plain_lines[before:]
+        )
+        ok = exit_code == 0 and "kit imports OK" in output
+        skill_seen = "SKILL.md" in output or "portfolio-impact" in output
+        await self.emit_tool(
+            "SYSTEM",
+            "agent toolkit verified" if ok else "agent toolkit NOT reachable",
+            detail=(
+                f"kit imports OK, skill {'found' if skill_seen else 'MISSING'}"
+                if ok else f"exit {exit_code} -- agent will fall back to raw HTTP"
+            ),
+            status="ok" if (ok and skill_seen) else "fail",
+            body=output[:2000],
+        )
+
+    async def _lock_egress(self, sandbox) -> None:
+        """Apply the domain allow list immediately before the agent starts.
+
+        We create the sandbox UNLOCKED so provisioning can reach the npm registry and
+        apt, then lock it down before any agent code runs. The agent therefore never
+        has access to a package registry at all.
+        """
+        allow_list = os.environ.get("DAYTONA_DOMAIN_ALLOW_LIST", DEFAULT_DOMAIN_ALLOW_LIST)
+        if not allow_list:
+            await self.emit_tool(
+                "SYSTEM", "EGRESS NOT LOCKED", detail="no allow list configured", status="fail",
+            )
+            return
+        domains = [d.strip() for d in allow_list.split(",") if d.strip()]
+        try:
+            await sandbox.update_network_settings(domain_allow_list=allow_list)
+        except Exception as exc:
+            # Never silently claim a lock we do not have.
+            await self.emit_tool(
+                "SYSTEM", "EGRESS LOCK FAILED - sandbox is OPEN",
+                detail=repr(exc)[:120], status="fail", body=repr(exc)[:500],
+            )
+            return
+        await self.emit_tool(
+            "SYSTEM", f"EGRESS LOCKED - {len(domains)} domains",
+            detail=", ".join(domains), status="ok",
+        )
+
     async def _upload_credentials(self, sandbox, auth_path: Path) -> None:
         """Transplant the host's ChatGPT auth.json into the sandbox.
 
@@ -805,8 +1044,14 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             f"{shlex.quote(prompt)} < /dev/null"
         )
 
-    async def _run_codex(self, sandbox, session_id: str, command: str, deadline: float) -> int:
-        """Start the agent async, stream both pipes, wait for exit. Returns exit code."""
+    async def _run_session_command(
+        self, sandbox, session_id: str, command: str, deadline: float
+    ) -> int:
+        """Start a command async, stream both pipes, wait for exit. Returns exit code.
+
+        Used for both the codex run and base-image provisioning -- anything long enough
+        that `process.exec`'s 10s default timeout would kill it.
+        """
         from daytona import SessionExecuteRequest
 
         resp = await sandbox.process.execute_session_command(
@@ -977,35 +1222,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
 
         try:
             await self.emit_state("spawning")
-            create_params = CreateSandboxFromSnapshotParams(
-                snapshot=SNAPSHOT_NAME,
-                auto_stop_interval=0,  # never let it idle-die mid-run
-                auto_archive_interval=0,
-                ttl_minutes=SANDBOX_TTL_MINUTES,  # safety net if the host process dies
-                env_vars=env_vars,
-                labels={"app": "agent-arena", "run_id": self.run_id},
-                domain_allow_list=os.environ.get(
-                    "DAYTONA_DOMAIN_ALLOW_LIST", DEFAULT_DOMAIN_ALLOW_LIST
-                ),
-            )
-            try:
-                sandbox = await daytona.create(
-                    create_params,
-                    timeout=180,
-                    on_snapshot_create_logs=lambda chunk: print(f"[snapshot] {chunk}"),
-                )
-            except Exception as exc:
-                # Egress locking is the most likely field to be rejected by the API;
-                # retry once without it rather than losing the demo.
-                await self.emit_log("stderr", f"[orchestrator] create failed ({exc!r}); retrying without egress lock")
-                create_params.domain_allow_list = None
-                sandbox = await daytona.create(
-                    create_params,
-                    timeout=180,
-                    on_snapshot_create_logs=lambda chunk: print(f"[snapshot] {chunk}"),
-                )
-            await self.emit_tool("SYSTEM", f"sandbox {getattr(sandbox, 'id', '?')}",
-                                 detail=SNAPSHOT_NAME, status="ok")
+            sandbox, needs_provision = await self._create_sandbox(daytona, env_vars)
 
             budget = {
                 "max_attempts": MAX_ATTEMPTS,
@@ -1018,6 +1235,15 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             # Must happen BEFORE any codex invocation.
             await self._upload_credentials(sandbox, auth_path)
             await sandbox.process.create_session(session_id)
+
+            if needs_provision:
+                await self._provision_base_image(sandbox, session_id, deadline)
+            # Unconditional (belt and braces): on the snapshot path these are baked in,
+            # but re-uploading is cheap and guarantees kit/skills are present either way.
+            await self._upload_agent_assets(sandbox)
+            await self._verify_agent_assets(sandbox, session_id, deadline)
+            # Lock egress only now: provisioning needs npm + apt, the agent must not.
+            await self._lock_egress(sandbox)
 
             base_prompt = self._build_prompt(news, portfolio, 1)
 
@@ -1052,7 +1278,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                 await self.emit_tool("SYSTEM", f"codex attempt {attempt}",
                                      detail=f"{self.model} / {self.effort}", status="running",
                                      body=cmd)
-                exit_code = await self._run_codex(sandbox, session_id, cmd, deadline)
+                exit_code = await self._run_session_command(sandbox, session_id, cmd, deadline)
                 await self.emit_log("stdout", f"[orchestrator] codex exited {exit_code}")
 
                 # Retrying an auth failure just burns the clock -- fail loudly instead.
@@ -1084,7 +1310,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                         f"{self._retry_prompt(last_report, attempt)}"
                     )
                     fallback_cmd = self._codex_cmd(fallback_prompt, resume=False)
-                    exit_code = await self._run_codex(sandbox, session_id, fallback_cmd, deadline)
+                    exit_code = await self._run_session_command(sandbox, session_id, fallback_cmd, deadline)
                     await self.emit_log(
                         "stdout", f"[orchestrator] fallback codex exec exited {exit_code}"
                     )
@@ -1293,13 +1519,119 @@ async def _smoke() -> None:
         elif t == "result":
             print("== RESULT " + json.dumps(ev["data"])[:400])
 
+    news = CANNED_NEWS
+    if len(sys.argv) > 2 and sys.argv[1] == "--news":
+        news = _load_news(sys.argv[2])
+        print(f"[smoke] news: {news.get('id')} - {news.get('headline','')[:80]}")
+
+    t0 = time.monotonic()
     try:
-        result = await run_analysis(CANNED_NEWS, _load_portfolio(), printer)
-        print("\nFINAL RESULT:\n" + json.dumps(result, indent=2)[:3000])
+        result = await run_analysis(news, _load_portfolio(), printer)
+        print(f"\n=== TOTAL WALL CLOCK: {time.monotonic() - t0:.1f}s ===")
+        print("\nFINAL RESULT:\n" + json.dumps(result, indent=2))
     except Exception as exc:
-        print(f"\nRUN FAILED: {exc}")
+        print(f"\n=== FAILED after {time.monotonic() - t0:.1f}s ===")
+        print(f"RUN FAILED: {exc}")
         raise SystemExit(1)
 
 
+def _load_news(news_id: str) -> dict:
+    """Pull one event out of data/news_samples.json by id."""
+    p = REPO_ROOT / "data" / "news_samples.json"
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    items = raw if isinstance(raw, list) else (
+        raw.get("events") or raw.get("news") or raw.get("samples") or []
+    )
+    if isinstance(items, dict):
+        items = list(items.values())
+    for n in items:
+        if isinstance(n, dict) and n.get("id") == news_id or n.get("news_id") == news_id:
+            return n
+    raise SystemExit(
+        f"news id {news_id!r} not found. Available: "
+        f"{[n.get('id') for n in items if isinstance(n, dict)]}"
+    )
+
+
+async def _provision_check() -> None:
+    """Time the cold provisioning path without burning a full analysis run.
+
+    Creates a sandbox from the base image, provisions it, uploads kit/skills,
+    verifies they are reachable, applies the egress lock, then deletes the sandbox.
+    """
+    if not os.environ.get("DAYTONA_API_KEY"):
+        raise SystemExit("DAYTONA_API_KEY is not set (see .env).")
+
+    from daytona import AsyncDaytona, DaytonaConfig
+
+    def printer(ev: dict) -> None:
+        if ev.get("type") == "tool":
+            print(f"  [{ev['kind']:<7}] {ev['status']:<7} {ev['label']} :: {ev.get('detail','')}")
+        elif ev.get("type") == "log":
+            print(f"  * {ev['stream']}: {ev['text'][:150]}")
+
+    orc = Orchestrator(printer, run_id="provision-check")
+    cfg: dict[str, Any] = {"api_key": os.environ["DAYTONA_API_KEY"]}
+    if os.environ.get("DAYTONA_API_URL"):
+        cfg["api_url"] = os.environ["DAYTONA_API_URL"]
+    if os.environ.get("DAYTONA_TARGET"):
+        cfg["target"] = os.environ["DAYTONA_TARGET"]
+
+    daytona = AsyncDaytona(DaytonaConfig(**cfg))
+    sandbox = None
+    session_id = "provision-check"
+    marks: list[tuple[str, float]] = []
+    t0 = time.monotonic()
+
+    def mark(label: str) -> None:
+        marks.append((label, time.monotonic() - t0))
+
+    try:
+        env_vars = {"CODEX_HOME": CODEX_HOME, "PYTHONUNBUFFERED": "1"}
+        sec_ua = os.environ.get("SEC_USER_AGENT")
+        if sec_ua:
+            env_vars["SEC_USER_AGENT"] = sec_ua
+
+        sandbox, needs_provision = await orc._create_sandbox(daytona, env_vars)
+        mark("create")
+        await sandbox.process.create_session(session_id)
+
+        deadline = t0 + 600
+        if needs_provision:
+            await orc._provision_base_image(sandbox, session_id, deadline)
+            mark("provision (codex + python)")
+        else:
+            print("  (snapshot path -- no provisioning needed)")
+
+        await orc._upload_agent_assets(sandbox)
+        mark("upload kit/skills")
+        await orc._verify_agent_assets(sandbox, session_id, deadline)
+        mark("verify toolkit")
+        await orc._lock_egress(sandbox)
+        mark("egress lock")
+
+        print("\n===== PROVISION CHECK TIMING =====")
+        print(f"image          : {BASE_IMAGE}")
+        prev = 0.0
+        for label, at in marks:
+            print(f"{label:<26}: +{at - prev:5.1f}s  (t={at:5.1f}s)")
+            prev = at
+        print(f"{'TOTAL COLD PATH':<26}: {marks[-1][1]:5.1f}s")
+    finally:
+        if sandbox is not None:
+            with contextlib.suppress(Exception):
+                await sandbox.process.delete_session(session_id)
+            try:
+                await sandbox.delete()
+                print("sandbox deleted")
+            except Exception as exc:
+                print(f"WARNING: sandbox delete failed ({exc!r}) -- delete it by hand")
+        with contextlib.suppress(Exception):
+            await daytona.close()
+
+
 if __name__ == "__main__":
-    asyncio.run(_smoke())
+    if "--provision-check" in sys.argv:
+        asyncio.run(_provision_check())
+    else:
+        asyncio.run(_smoke())

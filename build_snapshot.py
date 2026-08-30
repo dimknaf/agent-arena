@@ -116,7 +116,10 @@ def build_image():
     # Relative, single-segment paths only — see the backslash note above; `kit`
     # normalises to `kit` with no separator, so the COPY line stays POSIX-clean.
     # build_image() is called with cwd == REPO_ROOT (see main()).
-    for local, remote in (("kit", "/kit"), ("skills", "/skills")):
+    # /opt/kit is what skills/portfolio-impact/SKILL.md tells the agent to import from,
+    # and /etc/codex/skills is one of the four directories Codex actually scans for
+    # skills. Baking anywhere else means the agent silently never sees them.
+    for local, remote in (("kit", "/opt/kit"), ("skills", "/etc/codex/skills")):
         if _has_files(REPO_ROOT / local):
             print(f"[build] baking {local}/ -> {remote}")
             image = image.add_local_dir(local, remote)

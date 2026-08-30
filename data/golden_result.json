@@ -1,0 +1,172 @@
+{
+  "news_id": "evt-taiwan-quake",
+  "headline": "Magnitude 7.1 earthquake near Hsinchu halts TSMC leading-edge fabs; advanced packaging lines offline",
+  "published_at": "2026-08-28T01:40:00Z",
+  "thesis": "A magnitude 7.1 quake near Hsinchu has idled TSMC's N3/N2 lines and, critically, the CoWoS advanced-packaging capacity that is the single source for AI accelerator assembly. This portfolio's semiconductor and AI-hardware names are correlated through one supplier rather than through a sector factor, so the shock propagates unevenly: NVDA and AVGO take the direct hit, AAPL and MSFT absorb second-order timing damage, CAT and NEE feel a slower data-centre build, and the low-beta defensives catch the rotation out of AI.",
+  "methodology": "correlation_contagion",
+  "confidence": 0.71,
+  "mechanism": [
+    {
+      "from": "M7.1 Hsinchu quake",
+      "to": "TSMC N3/N2 fabs",
+      "effect": "Fab 12/18/20 evacuated; 5-10 days of tool requalification and in-process wafer scrap"
+    },
+    {
+      "from": "TSMC N3/N2 fabs",
+      "to": "CoWoS packaging",
+      "effect": "single-source advanced-packaging capacity offline, the binding constraint on AI accelerator assembly"
+    },
+    {
+      "from": "CoWoS packaging",
+      "to": "NVDA / AVGO",
+      "effect": "roughly one month of accelerator and custom-ASIC shipments pushed out of the quarter"
+    },
+    {
+      "from": "NVDA / AVGO",
+      "to": "MSFT Azure AI",
+      "effect": "GPU-gated capacity build slows, shifting Azure AI revenue recognition and capex to the right"
+    },
+    {
+      "from": "MSFT Azure AI",
+      "to": "CAT / NEE",
+      "effect": "data-centre genset orders and grid interconnect demand slip a quarter with the build"
+    },
+    {
+      "from": "NVDA / AVGO",
+      "to": "JNJ / WMT / XOM",
+      "effect": "selling in the AI complex funds a risk-off rotation into low-beta defensive ballast"
+    }
+  ],
+  "positions": [
+    {
+      "ticker": "AAPL",
+      "sector": "Technology Hardware",
+      "weight_pct": 15.04,
+      "value_before_usd": 15040.0,
+      "impact_pct": -2.6,
+      "impact_usd": -391.04,
+      "rationale": "Apple is TSMC's largest N3 customer and the A-series and M-series silicon for the autumn iPhone and Mac ramp comes off the idled Fab 18 lines. A 5-10 day halt lands mid-build, though Apple's node-transition inventory buffer absorbs part of the slip.",
+      "confidence": 0.74
+    },
+    {
+      "ticker": "NVDA",
+      "sector": "Semiconductors",
+      "weight_pct": 14.0,
+      "value_before_usd": 14000.0,
+      "impact_pct": -7.2,
+      "impact_usd": -1008.0,
+      "rationale": "The most direct casualty. NVIDIA is fabless and wholly dependent on TSMC leading-edge wafers plus CoWoS, the single-source bottleneck for every AI accelerator it ships, so its correlation to this shock is near one; a two-week outage defers roughly a month of GB-series deliveries.",
+      "confidence": 0.86
+    },
+    {
+      "ticker": "MSFT",
+      "sector": "Software",
+      "weight_pct": 12.6,
+      "value_before_usd": 12600.0,
+      "impact_pct": -1.4,
+      "impact_usd": -176.4,
+      "rationale": "Second-order and timing-driven: Azure's AI capacity build is gated by NVIDIA accelerator deliveries, so a supply slip shifts revenue recognition and capex to the right rather than destroying demand. Software margin and the non-AI Azure base insulate the multiple.",
+      "confidence": 0.68
+    },
+    {
+      "ticker": "AVGO",
+      "sector": "Semiconductors",
+      "weight_pct": 10.2,
+      "value_before_usd": 10200.0,
+      "impact_pct": -5.4,
+      "impact_usd": -550.8,
+      "rationale": "Broadcom's custom AI ASICs and AI-networking silicon are fabbed on the same TSMC leading-edge nodes and sit in the same CoWoS queue, so it moves with NVIDIA. Its heavy Apple revenue concentration is a second exposure to the identical outage.",
+      "confidence": 0.81
+    },
+    {
+      "ticker": "JPM",
+      "sector": "Financials",
+      "weight_pct": 10.08,
+      "value_before_usd": 10080.0,
+      "impact_pct": -0.2,
+      "impact_usd": -20.16,
+      "rationale": "Market-beta only. A drawdown concentrated in the AI complex trims equity-underwriting and capital-markets sentiment at the margin, but JPMorgan's net interest income is driven by the rate path, which this event does not move.",
+      "confidence": 0.45
+    },
+    {
+      "ticker": "XOM",
+      "sector": "Energy",
+      "weight_pct": 8.0,
+      "value_before_usd": 8000.0,
+      "impact_pct": 0.0,
+      "impact_usd": 0.0,
+      "rationale": "No transmission channel. Exxon's earnings track crude and refining spreads, which a Taiwanese fab outage does not touch, and its correlation to the semiconductor cluster is approximately zero. Marked flat deliberately rather than guessed.",
+      "confidence": 0.62
+    },
+    {
+      "ticker": "WMT",
+      "sector": "Consumer Staples",
+      "weight_pct": 8.0,
+      "value_before_usd": 8000.0,
+      "impact_pct": 0.3,
+      "impact_usd": 24.0,
+      "rationale": "Mildly positive on rotation: low-beta staples catch a bid when the AI complex sells off. The offsetting risk is consumer-electronics cost of goods if the outage persists, but at 5-10 days it never reaches shelf pricing.",
+      "confidence": 0.52
+    },
+    {
+      "ticker": "JNJ",
+      "sector": "Health Care",
+      "weight_pct": 7.92,
+      "value_before_usd": 7920.0,
+      "impact_pct": 0.6,
+      "impact_usd": 47.52,
+      "rationale": "Classic risk-off ballast. With no semiconductor supply exposure and the lowest beta in the book, J&J is a natural destination for money leaving AI hardware, which makes it the largest positive contributor here.",
+      "confidence": 0.58
+    },
+    {
+      "ticker": "CAT",
+      "sector": "Industrials",
+      "weight_pct": 7.12,
+      "value_before_usd": 7120.0,
+      "impact_pct": -0.8,
+      "impact_usd": -56.96,
+      "rationale": "Indirect and timing-driven. Caterpillar's fastest-growing line is on-site power generation for data centres, so if hyperscaler capacity slips a quarter, genset and turbine orders slip with it. The core construction and mining cycle is untouched.",
+      "confidence": 0.55
+    },
+    {
+      "ticker": "NEE",
+      "sector": "Utilities",
+      "weight_pct": 7.04,
+      "value_before_usd": 7040.0,
+      "impact_pct": -0.3,
+      "impact_usd": -21.12,
+      "rationale": "Marginal. Data-centre load growth underwrites part of NextEra's interconnect pipeline, so a slower AI build pushes some contracted demand later, but the regulated rate base and signed PPAs dominate earnings and barely move.",
+      "confidence": 0.5
+    }
+  ],
+  "portfolio_value_before_usd": 100000.0,
+  "portfolio_impact_pct": -2.15296,
+  "portfolio_impact_usd": -2152.96,
+  "citations": [
+    {
+      "claim": "Precedent, prior Taiwan quake: TSMC evacuated its fabs and suspended construction in the aftermath, and confirmed all personnel were safe.",
+      "url": "https://www.sdxcentral.com/news/tsmc-evacuates-fabs-and-suspends-construction-in-earthquake-aftermath-confirms-all-personnel-are-safe/",
+      "source": "SDxCentral"
+    },
+    {
+      "claim": "Precedent, prior Taiwan quake: TSMC evacuated its factories in Taiwan following the earthquake.",
+      "url": "https://www.microchipusa.com/industry-news/taiwan-earthquake-tsmc-in-taiwan-evacuates-factories",
+      "source": "Microchip USA"
+    },
+    {
+      "claim": "Downside bound, prior Taiwan quake: TSMC's chipmaking facilities were rocked by the strongest quake in 27 years but escaped unharmed, its earthquake protection measures paying off. Evacuation does not imply structural damage, which is why this analysis models a short timing shock rather than lost capacity.",
+      "url": "https://www.tomshardware.com/tech-industry/semiconductors/tsmc-chipmaking-factories-rocked-by-magnitude-7-0-earthquake-that-was-the-strongest-in-27-years-but-facilities-escaped-unharmed-companys-earthquake-protection-measures-pay-off",
+      "source": "Tom's Hardware"
+    },
+    {
+      "claim": "Seismic reference: magnitude, depth and epicentre data for earthquakes in the Taiwan region.",
+      "url": "https://earthquake.usgs.gov/",
+      "source": "U.S. Geological Survey"
+    }
+  ],
+  "budget": {
+    "codex_credits_used": 3.84,
+    "parallel_calls_used": 6,
+    "attempts": 2
+  }
+}
