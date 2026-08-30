@@ -1055,10 +1055,16 @@ function repriceBook(){
 }
 function paintPortfolioBand(){
   const d = A2.data, b = pBand(d, A2.hz), u = pBandUsd(d, A2.hz);
+  // the book band gets its OWN domain: portfolio moves are an order of
+  // magnitude smaller than single-name moves and vanish on the shared scale
+  let m = 0.25;
+  HZ.forEach(h => { const x = pBand(d, h); m = Math.max(m, Math.abs(x.low), Math.abs(x.high)); });
+  m *= 1.15;
+  const pf = v => (v + m) / (2 * m);
   const track = $('#a2pband');
-  track.innerHTML = `<span class="pz" style="left:${(fFrac(0)*100).toFixed(2)}%"></span>
-    <span class="pb"></span><span class="pk" style="left:${(fFrac(b.base)*100).toFixed(2)}%"></span>`;
-  const lo = fFrac(Math.min(b.low, b.high)), hi = fFrac(Math.max(b.low, b.high));
+  track.innerHTML = `<span class="pz" style="left:${(pf(0)*100).toFixed(2)}%"></span>
+    <span class="pb"></span><span class="pk" style="left:${(pf(b.base)*100).toFixed(2)}%"></span>`;
+  const lo = pf(Math.min(b.low, b.high)), hi = pf(Math.max(b.low, b.high));
   const bar = track.querySelector('.pb');
   bar.style.background = b.base < 0 ? 'rgba(243,139,168,.55)' : 'rgba(166,227,161,.55)';
   requestAnimationFrame(() => {
@@ -1099,9 +1105,10 @@ function openAct2(d){
 
   $('#grid').classList.remove('back'); $('#hud').classList.remove('back');
   $('#grid').classList.add('away');    $('#hud').classList.add('away');
+  // opaque immediately — the arena collapsing over it is the transition.
+  // No rAF-gated entrance class: a dropped frame must never leave it see-through.
   const a2 = $('#act2');
-  a2.hidden = false; a2.classList.remove('closing'); a2.classList.add('pre');
-  requestAnimationFrame(() => requestAnimationFrame(() => a2.classList.remove('pre')));
+  a2.hidden = false; a2.classList.remove('closing', 'pre');
 
   const order = d.positions.slice().sort((a,b) => {
     const za = Math.abs(band(a,'long_term').base) < 1e-9, zb = Math.abs(band(b,'long_term').base) < 1e-9;
@@ -1165,14 +1172,15 @@ function dealCards(order, d, hzs){
     const zero = Math.abs(band(p, 'long_term').base) < 1e-9 && Math.abs(b.base) < 1e-9;
     const dv = divergence(p);
     const cite = A2.byTicker[p.ticker];
+    const flags = ((!zero && p.ticker === top) ? '<span class="cFlag">★ TOP IMPACT</span>' : '') +
+                  (dv ? `<span class="cFlagS ${dv.cls}">${dv.txt}</span>` : '');
     const c = el('div', 'a2card' + (zero ? ' zero' : ''),
-      `${(!zero && p.ticker === top) ? '<span class="cFlag">TOP IMPACT</span>' : ''}
-       <div class="cTop">
+      `<div class="cTop">
          <span class="cTk">${esc(p.ticker)}</span>
          <span class="cSec">${esc(p.sector || '')}</span>
          <span class="cImp">${fmtPct(b.base)}</span>
        </div>
-       ${dv ? `<span class="cFlagS ${dv.cls}">${dv.txt}</span>` : ''}
+       ${flags ? `<div class="cFlagRow">${flags}</div>` : ''}
        <div class="cNil">no material exposure</div>
        ${fanHTML(p, hzs)}
        <div class="cMath"><em>w</em> ${num(p.weight_pct,0).toFixed(2)}% <em>×</em> ${fmtPct(b.base)} <em>=</em> ${((num(p.weight_pct,0)/100)*b.base).toFixed(2)}pp${cite ? ' <em>·</em> &#128279;' : ''}</div>`);

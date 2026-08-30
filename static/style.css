@@ -561,7 +561,7 @@ body{
 
 /* ── hero ─────────────────────────────────────────────── */
 #a2hero{
-  flex:none;height:150px;
+  flex:none;height:128px;
   display:grid;grid-template-columns:1fr 400px 330px;gap:24px;align-items:center;
   padding:16px 24px;
   border:1px solid rgba(205,214,244,.12);border-radius:16px;
@@ -573,8 +573,8 @@ body{
 }
 .a2esc{color:var(--overlay);letter-spacing:.14em;font-size:12.5px}
 #a2thesis{
-  margin-top:9px;font-size:24.5px;line-height:1.32;color:var(--text);font-weight:600;
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  margin-top:8px;font-size:23px;line-height:1.3;color:var(--text);font-weight:600;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
 .a2h-right{display:flex;flex-direction:column;gap:13px}
 .a2badges{display:flex;gap:10px;flex-wrap:wrap}
@@ -635,15 +635,15 @@ body{
 #a2pband .pz{position:absolute;top:0;bottom:0;width:1px;background:rgba(205,214,244,.4)}
 .a2bandnum{font-family:var(--mono);font-size:26px;font-weight:700;flex:none;min-width:150px;text-align:right}
 
-#a2mid{flex:none;height:378px;display:grid;grid-template-columns:1.06fr 1fr;gap:14px;min-height:0}
+#a2mid{flex:none;height:402px;display:grid;grid-template-columns:1.06fr 1fr;gap:14px;min-height:0}
 
 /* ── BEAT A · the value cascade ────────────────────────── */
-#a2casc{flex:1;min-height:0;padding:10px 20px 12px;display:flex;flex-direction:column;gap:5px}
+#a2casc{flex:1;min-height:0;padding:8px 18px 10px;display:flex;flex-direction:column;gap:3px;overflow:hidden}
 /* visible is the DEFAULT; JS adds .pend then removes it on a timer, so a
    missed animation frame can never leave a step invisible */
 .csr{
-  display:grid;grid-template-columns:112px 1fr 178px;align-items:baseline;gap:12px;
-  padding:6px 12px;border-radius:9px;cursor:pointer;
+  display:grid;grid-template-columns:132px 1fr 176px;align-items:baseline;gap:10px;
+  padding:4px 11px;border-radius:8px;cursor:pointer;
   border-left:3px solid transparent;
   opacity:1;transform:none;
   transition:opacity .34s ease, transform .44s cubic-bezier(.18,1.2,.3,1);
@@ -658,7 +658,7 @@ body{
 .csr.head .op{color:var(--overlay);font-size:13px;letter-spacing:.14em}
 .csr.fin{border-top:1px solid rgba(205,214,244,.16);margin-top:2px;padding-top:8px}
 .csr.fin .vl{font-size:30px}
-.csr .sfx{font-size:12.5px;color:var(--overlay);display:block;font-family:var(--sans);line-height:1.1}
+.csr .sfx{font-size:12.5px;color:var(--overlay);font-family:var(--sans);margin-left:7px}
 #a2cascWhy{
   flex:none;margin-top:auto;padding:8px 13px;border-radius:9px;
   background:rgba(17,17,27,.6);border-left:3px solid var(--yellow);

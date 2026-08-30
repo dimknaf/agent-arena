@@ -94,7 +94,10 @@ PROVISION_SCRIPT = (
 
 # --- run policy -------------------------------------------------------------
 MAX_ATTEMPTS = 4
-WALL_CLOCK_BUDGET_S = 6 * 60  # 6 minutes total, all attempts
+WALL_CLOCK_BUDGET_S = int(os.environ.get("ARENA_WALL_CLOCK_S", 12 * 60))
+# Measured live: a full first attempt (research + pandas grid + write) took 311s,
+# so the original 360s budget left no room for even one retry. 12 min allows the
+# designed fail-then-fix arc. Override with ARENA_WALL_CLOCK_S.
 ATTEMPT_POLL_INTERVAL_S = 2.0
 # Printed by every session command so we can detect completion ourselves; see the long
 # comment in _run_session_command for why the API's exit_code cannot be trusted alone.
@@ -596,6 +599,7 @@ class Orchestrator:
         self.model = INITIAL_MODEL
         self.effort = INITIAL_EFFORT
         self.phase = "spawning"
+        self.uploaded_schema_sha = ""
 
     # -- emit wrappers ------------------------------------------------------
     @property
@@ -797,7 +801,12 @@ class Orchestrator:
         from daytona import FileUpload
 
         # Normalised for OpenAI strict mode; see _strictify_schema.
+        # Captured ONCE here: V6 must compare what we uploaded against what comes back
+        # out of the sandbox. Re-reading the file at verify time made V6 fail whenever
+        # verifier/impact.schema.json changed on the host mid-run (workstream B editing
+        # it), reporting agent tampering that never happened.
         schema_bytes = _schema_upload_bytes()
+        self.uploaded_schema_sha = _sha256_bytes(schema_bytes)
         uploads = [
             FileUpload(source=json.dumps(portfolio, indent=2).encode(), destination=f"{WORK_DIR}/portfolio.json"),
             FileUpload(source=json.dumps(_news_list(news), indent=2).encode(),
@@ -1104,10 +1113,12 @@ THE CHAIN -- per position, emit each input so the arithmetic is auditable:
   5 CAPITALISE  value_at_stake_usd   = profit_at_stake_usd * earnings_multiple
   6 EQUITY      impact_pct           = value_at_stake_usd / market_cap_usd * 100
 
-MARKET CAPS MUST BE FETCHED LIVE. Never invent, guess or hardcode one -- a made-up market
-cap invalidates the entire chain. Derive it from SEC companyconcept
-(dei:EntityCommonStockSharesOutstanding) x price, or via parallel_client.search. Record how
-you got it in `value_basis` and add a citation for it.
+MARKET CAPS MUST BE FETCHED LIVE. Never invent, guess or hardcode one -- V7 divides by this
+number, so a made-up cap silently moves the gate and invalidates the whole chain. Use:
+    sec_client.market_cap(ticker, price_usd)   # EDGAR shares outstanding x price
+Verified working for all 10 holdings. Put the provenance in `value_basis`, e.g.
+"market_cap_usd $4,820.0bn = SEC EDGAR shares outstanding x $200.00 last close
+(kit.sec_client.market_cap)", and add a citation for it.
 
 THREE HORIZONS, each with a low/base/high range (a 3x3 grid per position):
   short_term  0-1 month    method "sentiment_positioning" -- headline severity, narrative,
@@ -1116,6 +1127,10 @@ THREE HORIZONS, each with a low/base/high range (a 3x3 grid per position):
   medium_term 1-6 months   the chain, discounted for what is already priced in
   long_term   6-24 months  the full chain
 Divergence between short_term and long_term is the most interesting result. Do not suppress it.
+Expect a DECLINING profile: the market prices panic in weeks, but only permanently lost
+earnings survive to 12+ months, so |long_term| is typically well under |short_term| (a good
+run lands near short -1.96% / medium -1.35% / long -0.93% at portfolio level). A FLAT profile
+across the three horizons means the methodology was not applied -- rework it.
 Each POSITION horizon also needs `method` (<=60 chars) and `note` (10-300 chars).
 Put what separates low/base/high in `variant_basis`.
 
@@ -1541,7 +1556,7 @@ Write /work/result.json and emit the same object as your final message.
                     result, err = await self._download_result(sandbox)
 
                 sandbox_hash = await self._sandbox_schema_hash(sandbox)
-                local_schema_hash = _sha256_bytes(_schema_upload_bytes())
+                local_schema_hash = self.uploaded_schema_sha
 
                 measured = {
                     "attempts": attempt,

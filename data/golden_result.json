@@ -70,7 +70,7 @@
             "high": -217.33
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -84,7 +84,7 @@
             "high": -124.83
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -98,7 +98,7 @@
             "high": -55.65
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -134,7 +134,7 @@
             "high": -575.4
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -148,7 +148,7 @@
             "high": -324.1
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -162,7 +162,7 @@
             "high": -161.0
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -198,7 +198,7 @@
             "high": -132.93
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -212,7 +212,7 @@
             "high": -63.0
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -226,7 +226,7 @@
             "high": -21.42
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -262,7 +262,7 @@
             "high": -299.88
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -276,7 +276,7 @@
             "high": -168.81
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -290,7 +290,7 @@
             "high": -86.7
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -326,7 +326,7 @@
             "high": -31.0
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -340,7 +340,7 @@
             "high": -6.05
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -354,7 +354,7 @@
             "high": 2.62
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -390,7 +390,7 @@
             "high": 31.0
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -404,7 +404,7 @@
             "high": 9.8
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -418,7 +418,7 @@
             "high": 4.0
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -454,7 +454,7 @@
             "high": 63.4
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -468,7 +468,7 @@
             "high": 15.6
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -482,7 +482,7 @@
             "high": 2.72
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -518,7 +518,7 @@
             "high": 94.84
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -532,7 +532,7 @@
             "high": 21.19
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -546,7 +546,7 @@
             "high": 3.96
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -582,7 +582,7 @@
             "high": -47.35
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -596,7 +596,7 @@
             "high": -23.85
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -610,7 +610,7 @@
             "high": -9.26
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     },
@@ -646,7 +646,7 @@
             "high": -17.07
           },
           "method": "sentiment_positioning",
-          "note": "0-1 month. Price-only: positioning and risk appetite, not cash flows. Set independently of the value chain and expected to overshoot fundamentals."
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
         },
         "medium_term": {
           "impact_pct": {
@@ -660,7 +660,7 @@
             "high": -8.1
           },
           "method": "earnings_revision_chain",
-          "note": "1-12 months. Consensus earnings revisions as the disruption window is quantified; converges part-way from the sentiment move toward fair value."
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
         },
         "long_term": {
           "impact_pct": {
@@ -674,7 +674,7 @@
             "high": -2.11
           },
           "method": "fundamental_value_chain",
-          "note": "12 months and beyond. Equals the capitalised value chain: value_at_stake_usd over market_cap_usd. This is the only horizon V7 gates."
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
         }
       }
     }

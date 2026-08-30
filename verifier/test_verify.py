@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from verify import verify  # noqa: E402
 
-IDS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7"]
+IDS = ["V1", "V2", "V3", "V4", "V5a", "V5b", "V6", "V7"]
 HORIZONS = ["short_term", "medium_term", "long_term"]
 VARIANTS = ["low", "base", "high"]
 
@@ -136,7 +136,7 @@ def assert_shape(report):
 
 # ------------------------------------------------------------------ tests ---
 
-def test_valid_result_passes_all_seven():
+def test_valid_result_passes_all_eight():
     report = run(valid_result())
     assert_shape(report)
     failed = [c for c in report["checks"] if not c["passed"]]
@@ -147,7 +147,9 @@ def test_valid_result_passes_all_seven():
 def test_kinds_match_contract():
     kinds = {c["id"]: c["kind"] for c in run(valid_result())["checks"]}
     assert kinds == {"V1": "schema", "V2": "semantic", "V3": "semantic", "V4": "semantic",
-                     "V5": "semantic", "V6": "semantic", "V7": "semantic"}
+                     "V5a": "schema", "V5b": "semantic", "V6": "semantic", "V7": "semantic"}
+    # the cheap MECHANICAL FIX lane must have more than just V1 in it
+    assert sorted(k for k, v in kinds.items() if v == "schema") == ["V1", "V5a"]
 
 
 def test_v3_names_the_failing_pair_and_both_numbers():
@@ -251,38 +253,38 @@ def test_v4_caps_at_three_offenders():
     assert "more)" in v4["message"]
 
 
-def test_v5_catches_unordered_band():
+def test_v5b_catches_unordered_band():
     r = valid_result()
     pct = r["positions"][0]["horizons"]["long_term"]["impact_pct"]
     pct["low"], pct["high"] = pct["high"], pct["low"]      # low now above high
-    v5 = by_id(run(r))["V5"]
+    v5 = by_id(run(r))["V5b"]
     assert v5["passed"] is False
     assert v5["kind"] == "semantic"
     assert "not ordered" in v5["message"], v5["message"]
 
 
-def test_v5_catches_unordered_portfolio_band():
+def test_v5b_catches_unordered_portfolio_band():
     r = valid_result()
     r["horizons"]["short_term"]["impact_pct"]["base"] = 99.0
-    v5 = by_id(run(r))["V5"]
+    v5 = by_id(run(r))["V5b"]
     assert v5["passed"] is False
     assert "portfolio short_term.impact_pct not ordered" in v5["message"], v5["message"]
 
 
-def test_v5_catches_weight_sum_and_confidence():
+def test_v5a_catches_weight_sum_and_confidence():
     r = valid_result()
     r["positions"][0]["weight_pct"] = 40.0
-    assert "sums to 90.00" in by_id(run(r))["V5"]["message"]
+    assert "sums to 90.00" in by_id(run(r))["V5a"]["message"]
 
     r2 = valid_result()
     r2["positions"][1]["confidence"] = 1.4
-    assert "outside [0,1]" in by_id(run(r2))["V5"]["message"]
+    assert "outside [0,1]" in by_id(run(r2))["V5a"]["message"]
 
 
-def test_v5_catches_portfolio_usd_mismatch():
+def test_v5a_catches_portfolio_usd_mismatch():
     r = valid_result()
     r["horizons"]["long_term"]["impact_usd"]["base"] -= 500.0
-    v5 = by_id(run(r))["V5"]
+    v5 = by_id(run(r))["V5a"]
     assert v5["passed"] is False
     assert "portfolio long_term/base impact_usd" in v5["message"], v5["message"]
 
@@ -355,10 +357,55 @@ def test_v7_skips_all_zero_grid_position():
 
 
 def test_v7_skips_market_cap_value_impact_basis():
+    """Legacy prose token still works as a fallback."""
     r = valid_result()
     r["positions"][0]["value_basis"] = "market_cap_value_impact: direct re-rating of the cap."
     r["positions"][0]["value_at_stake_usd"] = 999.0       # nonsense, but exempt
     assert by_id(run(r))["V7"]["passed"] is True
+
+
+def test_v7_skips_structurally_without_any_magic_token():
+    """The skip must key off STRUCTURE, not prose. A position that declares no chain,
+    claims no long-run impact and supplies no cap is exempt even though its value_basis
+    is an ordinary, well-written sentence with no magic token in it."""
+    r = valid_result()
+    pos = r["positions"][2]                       # XOM: short_term +1.0, long_term 0.0
+    for key in ("revenue_line_usd", "affected_fraction", "duration_months",
+                "permanent_share", "margin", "earnings_multiple"):
+        pos[key] = 0.0
+    pos["market_cap_usd"] = 0.0                   # absent -> would fail V7 if not skipped
+    pos["value_basis"] = ("No revenue line is exposed to this event, so no value chain was "
+                          "computed for this holding.")
+    assert "market_cap_value_impact" not in pos["value_basis"]
+    v7 = by_id(run(r))["V7"]
+    assert v7["passed"] is True, v7["message"]
+    assert "skipped" in v7["message"]
+
+
+def test_v7_still_gates_a_long_run_claim_made_without_a_chain():
+    """The loophole guard: declare no chain but claim a long-run number and you are
+    still gated on justifying it."""
+    r = valid_result()
+    pos = r["positions"][2]
+    for key in ("revenue_line_usd", "affected_fraction", "duration_months",
+                "permanent_share", "margin", "earnings_multiple"):
+        pos[key] = 0.0
+    pos["market_cap_usd"] = 0.0
+    pos["value_basis"] = "No chain computed, but we think it drops anyway."
+    pos["horizons"]["long_term"]["impact_pct"]["base"] = -3.0   # a claim with nothing behind it
+    v7 = by_id(run(r))["V7"]
+    assert v7["passed"] is False, v7["message"]
+    assert "market_cap_usd must be > 0" in v7["message"]
+
+
+def test_v7_checks_rather_than_skips_an_unaffected_name_with_real_inputs():
+    """Deliberate asymmetry: an unaffected name that DOES supply a real market cap and a
+    zero value_at_stake is verified (0 == 0/cap*100 closes trivially), not waved through."""
+    r = valid_result()
+    v7 = by_id(run(r))["V7"]
+    assert v7["passed"] is True
+    assert "3 value chains close" in v7["message"], v7["message"]
+    assert "skipped" not in v7["message"]
 
 
 # ------------------------------------------------- malformed / partial grids ---
