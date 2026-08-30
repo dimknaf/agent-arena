@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AUTONOMOUS PORTFOLIO IMPACT · MISSION CONTROL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+</head>
+<body>
+
+<div id="viewport">
+<div id="stage">
+
+  <!-- ══════════════ MAIN GRID ══════════════ -->
+  <div id="grid">
+
+    <!-- ───────── LEFT · PORTFOLIO ───────── -->
+    <section class="panel" id="pnlPortfolio">
+      <header class="phead">
+        <span class="ptitle">PORTFOLIO</span>
+        <span class="psub" id="pfMeta">10 holdings</span>
+      </header>
+      <div id="treemap"></div>
+      <div id="pfTotals">
+        <div class="tot">
+          <span class="totlab">BEFORE</span>
+          <span class="totval" id="totBefore">$100,000</span>
+        </div>
+        <div class="totarrow" id="totArrow">→</div>
+        <div class="tot">
+          <span class="totlab">AFTER</span>
+          <span class="totval" id="totAfter">—</span>
+        </div>
+        <div class="totdelta" id="totDelta"></div>
+      </div>
+    </section>
+
+    <!-- ───────── CENTRE · THE AGENT ───────── -->
+    <section class="panel" id="pnlAgent">
+      <header class="strip">
+        <span class="sModel" id="sModel">gpt-5.6-terra</span>
+        <span class="sep">·</span>
+        <span class="sEffort" id="sEffort">medium</span>
+        <span class="sep">·</span>
+        <span class="sAttempt" id="sAttempt">ATTEMPT 1</span>
+        <span class="sep">·</span>
+        <span class="sClock" id="sClock">00:00</span>
+        <span class="sep">·</span>
+        <span class="sTok" id="sTok">0 tok</span>
+        <canvas id="spark" width="360" height="60"></canvas>
+        <span class="spacer"></span>
+        <span class="sPhase" id="sPhase"><i class="led"></i><b id="sPhaseTxt">IDLE</b></span>
+      </header>
+
+      <div id="railWrap">
+        <div id="rail"></div>
+        <div id="slip"></div>
+        <div id="railHint">waiting for agent stream…</div>
+      </div>
+
+      <div id="tomb" hidden>
+        <div class="tombinner">
+          <div class="tombicon">⌁</div>
+          <div class="tombtitle">SANDBOX DESTROYED</div>
+          <div class="tombline"><b id="tombLines">0</b> log lines retained as proof of work</div>
+          <div class="tombmeta" id="tombMeta"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── RIGHT · THE JUDGE ───────── -->
+    <section class="panel" id="pnlJudge">
+      <header class="phead">
+        <span class="ptitle">THE JUDGE</span>
+        <span class="psub" id="judgeSub">deterministic verifier</span>
+      </header>
+      <div id="checks"></div>
+      <div id="stampZone">
+        <div id="stamp" class="idle">
+          <div class="stampTop" id="stampTop">AWAITING VERDICT</div>
+          <div class="stampMsg" id="stampMsg"></div>
+          <div class="stampRoute" id="stampRoute" hidden></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════════ HUD ══════════════ -->
+  <footer id="hud">
+    <div class="hudcell hudticker">
+      <span class="hudlab">NEWS</span>
+      <div class="tickwin"><div id="tickInner"></div></div>
+    </div>
+    <div class="hudcell hudpips">
+      <span class="hudlab">ATTEMPTS</span>
+      <div id="pips"></div>
+    </div>
+    <div class="hudcell hudcred">
+      <span class="hudlab">CREDITS</span>
+      <div id="credBar"></div>
+      <span id="credNum">1000</span>
+    </div>
+    <div class="hudcell hudclock">
+      <span class="hudlab">ELAPSED</span>
+      <span id="hudClock">00:00</span>
+    </div>
+  </footer>
+
+  <div id="flash"></div>
+</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+{
+  "as_of": "2026-08-28",
+  "base_currency": "USD",
+  "total_value_usd": 100000,
+  "note": "Demo portfolio. 10 US large caps, diversified across sectors, with a deliberate semiconductor/AI-hardware cluster (AAPL / NVDA / AVGO / MSFT) so a single supply-chain event can propagate through several holdings. value_usd == qty * price_usd exactly; weight_pct sums to 100.00.",
+  "positions": [
+    {
+      "ticker": "AAPL",
+      "name": "Apple Inc.",
+      "sector": "Technology Hardware",
+      "qty": 64,
+      "price_usd": 235.0,
+      "value_usd": 15040.0,
+      "weight_pct": 15.04,
+      "beta": 1.15,
+      "notes": "Buys leading-edge silicon from TSMC; RF/connectivity content from AVGO. Exposed to Asia hardware supply chain."
+    },
+    {
+      "ticker": "NVDA",
+      "name": "NVIDIA Corporation",
+      "sector": "Semiconductors",
+      "qty": 70,
+      "price_usd": 200.0,
+      "value_usd": 14000.0,
+      "weight_pct": 14.0,
+      "beta": 1.75,
+      "notes": "Fabless; 100% dependent on TSMC leading-edge and CoWoS advanced packaging. Sells to MSFT and other hyperscalers."
+    },
+    {
+      "ticker": "MSFT",
+      "name": "Microsoft Corporation",
+      "sector": "Software",
+      "qty": 25,
+      "price_usd": 504.0,
+      "value_usd": 12600.0,
+      "weight_pct": 12.6,
+      "beta": 0.95,
+      "notes": "Largest buyer of NVDA accelerators; Azure AI capacity build-out is gated by GPU supply and by grid power."
+    },
+    {
+      "ticker": "AVGO",
+      "name": "Broadcom Inc.",
+      "sector": "Semiconductors",
+      "qty": 30,
+      "price_usd": 340.0,
+      "value_usd": 10200.0,
+      "weight_pct": 10.2,
+      "beta": 1.45,
+      "notes": "Custom AI ASICs and AI networking silicon, also fabbed at TSMC; significant Apple revenue concentration."
+    },
+    {
+      "ticker": "JPM",
+      "name": "JPMorgan Chase & Co.",
+      "sector": "Financials",
+      "qty": 35,
+      "price_usd": 288.0,
+      "value_usd": 10080.0,
+      "weight_pct": 10.08,
+      "beta": 1.1,
+      "notes": "Rate-sensitive: net interest income benefits from higher-for-longer policy rates."
+    },
+    {
+      "ticker": "XOM",
+      "name": "Exxon Mobil Corporation",
+      "sector": "Energy",
+      "qty": 64,
+      "price_usd": 125.0,
+      "value_usd": 8000.0,
+      "weight_pct": 8.0,
+      "beta": 0.85,
+      "notes": "Integrated oil and gas; direct leverage to crude prices, low correlation to the tech cluster."
+    },
+    {
+      "ticker": "WMT",
+      "name": "Walmart Inc.",
+      "sector": "Consumer Staples",
+      "qty": 80,
+      "price_usd": 100.0,
+      "value_usd": 8000.0,
+      "weight_pct": 8.0,
+      "beta": 0.6,
+      "notes": "Defensive; imports consumer electronics and general merchandise, so tariffs and freight costs matter."
+    },
+    {
+      "ticker": "JNJ",
+      "name": "Johnson & Johnson",
+      "sector": "Health Care",
+      "qty": 45,
+      "price_usd": 176.0,
+      "value_usd": 7920.0,
+      "weight_pct": 7.92,
+      "beta": 0.55,
+      "notes": "Defensive ballast; typically a risk-off beneficiary, minimal tech supply-chain exposure."
+    },
+    {
+      "ticker": "CAT",
+      "name": "Caterpillar Inc.",
+      "sector": "Industrials",
+      "qty": 16,
+      "price_usd": 445.0,
+      "value_usd": 7120.0,
+      "weight_pct": 7.12,
+      "beta": 1.25,
+      "notes": "Cyclical; data-centre power generation (gensets, turbines) is a growing AI-linked revenue stream."
+    },
+    {
+      "ticker": "NEE",
+      "name": "NextEra Energy, Inc.",
+      "sector": "Utilities",
+      "qty": 80,
+      "price_usd": 88.0,
+      "value_usd": 7040.0,
+      "weight_pct": 7.04,
+      "beta": 0.7,
+      "notes": "Regulated utility plus renewables; long-duration, rate-sensitive, and levered to data-centre load growth."
+    }
+  ]
+}

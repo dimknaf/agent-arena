@@ -1,0 +1,41 @@
+{
+  "note": "Demo trigger events for the portfolio-impact agent. Headlines and summaries are synthetic-but-plausible scenarios written for the hackathon demo; the agent is expected to verify and cite REAL sources it fetches itself via the Parallel search/extract client and SEC EDGAR. Do not cite these urls as evidence.",
+  "events": [
+    {
+      "id": "evt-taiwan-quake",
+      "headline": "Magnitude 7.1 earthquake near Hsinchu halts TSMC leading-edge fabs; advanced packaging lines offline",
+      "summary": "A magnitude 7.1 earthquake struck northwestern Taiwan early Friday, forcing TSMC to evacuate and idle its Fab 12, Fab 18 and Fab 20 facilities in the Hsinchu and Tainan science parks. TSMC said initial inspections show no structural damage but that leading-edge N3/N2 lines and CoWoS advanced-packaging capacity will be down for an estimated 5 to 10 days, with in-process wafer scrap concentrated in the most advanced nodes. Analysts flagged that CoWoS is the single-source bottleneck for AI accelerator assembly and that a two-week outage pushes roughly one month of AI GPU shipments to the right. Taiwan's grid operator also reported rolling load-shedding across the science parks.",
+      "published_at": "2026-08-28T01:40:00Z",
+      "tickers_hint": ["NVDA", "AVGO", "AAPL", "MSFT"],
+      "url": "https://www.reuters.com/business/taiwan-earthquake-tsmc-fabs-halted-2026-08-28/",
+      "why_interesting": "Strong second-order chain: TSMC outage -> NVDA/AVGO wafer and CoWoS supply -> MSFT Azure AI capacity and capex timing -> CAT/NEE data-centre build pace; AAPL hit on N3 iPhone silicon; JNJ/WMT/XOM act as risk-off ballast. Every holding should get a non-trivial rationale."
+    },
+    {
+      "id": "evt-opec-cut",
+      "headline": "OPEC+ announces surprise 1.5 million bpd output cut; Brent jumps 9% to $96",
+      "summary": "OPEC+ ministers agreed an unscheduled 1.5 million barrels per day production cut effective 1 October, citing inventory builds and weak compliance. Brent crude settled up 9% at $96.20 a barrel, its largest single-day gain in three years, and US gasoline futures rose 7%. Integrated producers rallied while transport-heavy retailers and industrial manufacturers fell on fuel and freight cost expectations. Rate strategists noted the move complicates the disinflation path and pushed the 2-year Treasury yield up 11 basis points.",
+      "published_at": "2026-08-27T16:05:00Z",
+      "tickers_hint": ["XOM", "WMT", "CAT"],
+      "url": "https://www.reuters.com/business/energy/opec-surprise-output-cut-2026-08-27/",
+      "why_interesting": "Cleanly sector-partitioned: energy up, staples and industrials down on input costs, rate path knock-on to financials and utilities. Good fit for sector_exposure_map."
+    },
+    {
+      "id": "evt-fed-hawkish-hold",
+      "headline": "Fed holds rates, dot plot signals only one cut in 2027; 10-year yield tops 4.9%",
+      "summary": "The FOMC left the federal funds target unchanged at 4.25-4.50% and the updated Summary of Economic Projections showed a median of just one cut in 2027, down from three at the June meeting. Chair Powell said the committee needs 'considerably more confidence' that services inflation is contained. The 10-year Treasury yield rose 14 basis points to 4.92% and the 2-year to 4.61%. Long-duration equities and rate-sensitive utilities sold off; banks outperformed on a steeper curve and higher-for-longer net interest income.",
+      "published_at": "2026-08-26T18:30:00Z",
+      "tickers_hint": ["JPM", "NEE", "MSFT", "NVDA"],
+      "url": "https://apnews.com/article/fed-holds-rates-hawkish-dot-plot-2026-08-26",
+      "why_interesting": "A discount-rate shock rather than a supply shock. Best fit for beta_weighted_shock, since the transmission is via duration/beta, not via a supply chain."
+    },
+    {
+      "id": "evt-hyperscaler-capex",
+      "headline": "Microsoft lifts FY27 capital spending guidance to $140bn, books multi-year NVIDIA accelerator commitment",
+      "summary": "Microsoft told investors it now expects fiscal 2027 capital expenditure of about $140 billion, up from a prior $115 billion, the bulk of it for AI datacentre capacity. The company disclosed a multi-year purchase commitment for NVIDIA GB-series accelerators and said it has signed additional power purchase agreements totalling 4.5 gigawatts of contracted capacity. Semiconductor and AI-networking suppliers rallied; utilities with datacentre interconnect queues and industrial suppliers of on-site power generation also gained. Some investors questioned the free-cash-flow impact on Microsoft itself.",
+      "published_at": "2026-08-25T21:10:00Z",
+      "tickers_hint": ["MSFT", "NVDA", "AVGO", "NEE", "CAT"],
+      "url": "https://www.cnbc.com/2026/08/25/microsoft-raises-fy27-capex-guidance-nvidia-commitment.html",
+      "why_interesting": "Positive-sign shock with a spender-versus-supplier split: NVDA/AVGO/NEE/CAT benefit while the spender MSFT is ambiguous. Tests that the agent can produce mixed-sign impacts rather than a uniform drift."
+    }
+  ]
+}
