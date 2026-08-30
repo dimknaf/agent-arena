@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -73,7 +74,231 @@ async def api_portfolio() -> dict[str, Any]:
 
 @app.get("/api/news")
 async def api_news() -> list[dict[str, Any]]:
-    return load_news()
+    """Live news only. The canned samples are NOT a runtime source any more —
+    only the hypothetical portfolio is allowed to be fixed data."""
+    if _live_news_cache["events"]:
+        return list(_live_news_cache["events"])
+    return (await api_news_live()).get("events", [])
+
+
+# Live news, cached. kit.parallel_client is synchronous `requests`, so every call
+# goes through asyncio.to_thread — calling it inline would block the event loop and
+# stall the SSE stream, which is the one thing this app must never do.
+_live_news_cache: dict[str, Any] = {"events": [], "fetched_at": 0.0}
+_LIVE_TTL_S = 180.0
+
+
+# Headlines say "Nvidia", not "NVDA" — match on company aliases as well as symbols,
+# plus the off-portfolio entities (TSMC, OPEC, the Fed) that drive second-order effects.
+_ALIASES: dict[str, tuple[str, ...]] = {
+    "AAPL": ("apple", "iphone"),
+    "NVDA": ("nvidia", "geforce", "blackwell", "h100", "h200"),
+    "MSFT": ("microsoft", "azure", "openai"),
+    "AVGO": ("broadcom", "vmware"),
+    "JPM": ("jpmorgan", "jp morgan"),
+    "XOM": ("exxon", "opec", "crude", "brent"),
+    "WMT": ("walmart",),
+    "JNJ": ("johnson & johnson", "johnson and johnson"),
+    "CAT": ("caterpillar",),
+    "NEE": ("nextera", "utility", "grid"),
+}
+# Suppliers and macro actors that hit several holdings at once.
+_CHAIN: dict[str, tuple[str, ...]] = {
+    "tsmc": ("NVDA", "AVGO", "AAPL"),
+    "taiwan semiconductor": ("NVDA", "AVGO", "AAPL"),
+    "cowos": ("NVDA", "AVGO"),
+    "federal reserve": ("JPM", "NEE", "MSFT"),
+    "opec": ("XOM", "CAT"),
+    "datacenter": ("NVDA", "MSFT", "NEE"),
+    "data center": ("NVDA", "MSFT", "NEE"),
+}
+
+
+def _hints_for(text: str, tickers: list[str]) -> list[str]:
+    low = text.lower()
+    upper = text.upper()
+    hits: set[str] = set()
+    for t in tickers:
+        # Word boundaries matter: a bare substring test makes "CAT" match ALLOCATION
+        # and INDICATE, which tags half the portfolio onto every story.
+        if re.search(rf"\b{re.escape(t)}\b", upper) or any(a in low for a in _ALIASES.get(t, ())):
+            hits.add(t)
+    for term, affected in _CHAIN.items():
+        if term in low:
+            hits.update(a for a in affected if a in tickers)
+    return sorted(hits)
+
+
+def _fetch_live_news(tickers: list[str], after: str) -> list[dict[str, Any]]:
+    from kit import parallel_client
+
+    # search() accepts a LIST of queries in one billed call. Specific queries beat one
+    # broad one: a single "news for AAPL NVDA MSFT..." query just returns generic
+    # market-roundup landing pages, which are useless as an analysis trigger.
+    queries = [
+        "Nvidia AI chip supply constraint or datacenter demand news",
+        "TSMC semiconductor fab capacity or advanced packaging news",
+        "Apple iPhone supply chain or chip sourcing news",
+        "Microsoft AI capex or Azure datacenter spending news",
+        "OPEC oil output decision or crude price shock",
+        "Federal Reserve rate decision or inflation surprise markets",
+    ]
+    hits = parallel_client.search(
+        queries,
+        max_results=8,
+        mode="fast",
+        objective=("A specific, recent, market-moving corporate or macro EVENT that would "
+                   "measurably move US large-cap equities. Prefer a concrete happening with "
+                   "a date over a market-roundup or a live-updates landing page."),
+        include_domains=["reuters.com", "apnews.com", "cnbc.com", "bloomberg.com",
+                         "ft.com", "tomshardware.com", "theverge.com"],
+        after_date=after,
+    )
+    # Drop evergreen landing pages - they are not events and make a poor trigger.
+    junk = ("live-updates", "/markets/us", "stock-market-today", "/quotes/",
+            "stock market news for", "breaking stock market news",
+            "stock price, quote", "- stock price")
+    hits = [h for h in hits
+            if not any(j in (h.get("url", "") + " " + h.get("title", "")).lower() for j in junk)]
+    events = []
+    for i, h in enumerate(hits):
+        title = (h.get("title") or "").strip()
+        if not title:
+            continue
+        events.append({
+            "id": f"live-{i}-{abs(hash(h.get('url', ''))) % 100000}",
+            "headline": title,
+            "summary": (h.get("snippet") or "")[:1200],
+            "published_at": h.get("published_at") or "",
+            "url": h.get("url") or "",
+            "tickers_hint": _hints_for(f"{title} {h.get('snippet', '')[:600]}", tickers),
+            "live": True,
+        })
+    # An event nothing in the book is exposed to makes a dull analysis - rank those last.
+    events.sort(key=lambda e: -len(e["tickers_hint"]))
+    return events
+
+
+@app.get("/api/news/live")
+async def api_news_live(force: bool = False) -> dict[str, Any]:
+    """Genuinely live headlines via Parallel Search. Falls back to the canned
+    samples on any failure — the news strip must never end up empty."""
+    now = time.time()
+    if not force and _live_news_cache["events"] and now - _live_news_cache["fetched_at"] < _LIVE_TTL_S:
+        return {"events": _live_news_cache["events"], "cached": True, "live": True}
+
+    try:
+        portfolio = load_portfolio()
+        tickers = [p["ticker"] for p in portfolio.get("positions", [])]
+        after = time.strftime("%Y-%m-%d", time.gmtime(now - 5 * 86400))
+        events = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_live_news, tickers, after), timeout=45.0
+        )
+        if not events:
+            raise RuntimeError("search returned nothing usable")
+        _live_news_cache.update(events=events, fetched_at=now)
+        return {"events": events, "cached": False, "live": True}
+    except Exception as exc:
+        # Report the failure honestly. We do NOT silently substitute canned events —
+        # a demo that claims live news and quietly serves fixtures is worse than one
+        # that says the scan failed.
+        return {"events": [], "cached": False, "live": False,
+                "error": f"{type(exc).__name__}: {exc}"}
+
+
+# ---------------------------------------------------------------- prompt
+
+
+@app.get("/api/prompt")
+async def api_prompt(news_id: str | None = None) -> dict[str, Any]:
+    """The exact prompt sent to Codex, so it can be sanity-checked before a run."""
+    try:
+        import orchestrator
+        portfolio = load_portfolio()
+        events = await api_news()
+        news = next((e for e in events if e.get("id") == news_id), None) or (
+            events[0] if events else {"id": "none", "headline": "(no news selected)"})
+        orch = orchestrator.Orchestrator(lambda _e: None)
+        prompt = orch._build_prompt(news, portfolio, 1)
+        return {"prompt": prompt, "chars": len(prompt), "news_id": news.get("id")}
+    except Exception as exc:
+        return {"prompt": "", "error": f"{type(exc).__name__}: {exc}"}
+
+
+# ---------------------------------------------------------------- past runs
+
+
+RUNS = ROOT / "runs"
+
+
+@app.get("/api/runs")
+async def api_runs() -> list[dict[str, Any]]:
+    """Past REAL runs, newest first. These are the replay source — we never
+    replay invented data."""
+    out = []
+    if RUNS.exists():
+        for d in sorted(RUNS.iterdir(), reverse=True):
+            f = d / "run.json"
+            if not (d.is_dir() and f.exists()):
+                continue
+            try:
+                r = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            res = r.get("result") or {}
+            hz = res.get("horizons") or {}
+
+            def base(h: str):
+                return ((hz.get(h) or {}).get("impact_pct") or {}).get("base")
+
+            ef = d / "events.jsonl"
+            out.append({
+                "run_id": r.get("run_id", d.name),
+                "passed": r.get("passed"),
+                "attempts": r.get("attempts"),
+                "elapsed_s": r.get("elapsed_s") or r.get("duration_s"),
+                "tokens_total": r.get("tokens_total"),
+                "headline": (r.get("news") or {}).get("headline") or res.get("headline"),
+                "started_at": r.get("started_at") or (d.stat().st_mtime),
+                "event_count": r.get("event_count"),
+                # Runs without a stream can still open Act II, but cannot replay the arena.
+                "has_events": ef.exists() and ef.stat().st_size > 0,
+                "short_base": r.get("short_base", base("short_term")),
+                "medium_base": r.get("medium_base", base("medium_term")),
+                "long_base": r.get("long_base", base("long_term")),
+            })
+    out.sort(key=lambda r: r.get("started_at") or 0, reverse=True)
+    return out[:40]
+
+
+@app.get("/api/runs/{run_id}")
+async def api_run(run_id: str) -> dict[str, Any]:
+    """One past run, with its recorded event stream if we captured one."""
+    d = RUNS / run_id
+    if not d.is_dir():
+        matches = [p for p in RUNS.iterdir() if p.is_dir() and p.name.startswith(run_id)] \
+            if RUNS.exists() else []
+        if not matches:
+            raise HTTPException(404, f"no such run: {run_id}")
+        d = matches[0]
+    f = d / "run.json"
+    if not f.exists():
+        raise HTTPException(404, f"run {d.name} has no run.json")
+    payload = json.loads(f.read_text(encoding="utf-8"))
+
+    events: list[dict[str, Any]] = []
+    ef = d / "events.jsonl"
+    if ef.exists():
+        for line in ef.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except Exception:
+                pass
+    payload["events"] = events
+    return payload
 
 
 @app.get("/api/health")
@@ -132,37 +357,139 @@ async def api_stream() -> StreamingResponse:
 @app.post("/api/trigger")
 async def api_trigger(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Fire an analysis run. Body: {news_id} or a full news object."""
-    if _run_lock.locked():
+    # Claim the run SYNCHRONOUSLY. _run_lock is acquired inside a detached task, so
+    # checking it here leaves a window where two fast clicks both pass and the second
+    # silently starts a sandbox the moment the first finishes.
+    if _current_run["active"] or _run_lock.locked():
         raise HTTPException(409, "a run is already in progress")
+    _current_run["active"] = True
 
-    payload = payload or {}
-    news = payload.get("news")
-    if news is None:
-        events = load_news()
-        if not events:
-            raise HTTPException(503, "no news events available")
-        news_id = payload.get("news_id")
-        news = next((e for e in events if e.get("id") == news_id), events[0])
+    try:
+        payload = payload or {}
+        news = payload.get("news")
+
+        if news is None:
+            available = list(_live_news_cache["events"])
+            ids = payload.get("news_ids") or (
+                [payload["news_id"]] if payload.get("news_id") else [])
+            if not available:
+                raise HTTPException(503, "no news available - run a live scan first")
+            if ids:
+                news = [e for e in available if e.get("id") in ids]
+                missing = set(ids) - {e.get("id") for e in news}
+                if missing:
+                    raise HTTPException(404, f"unknown news_id(s): {sorted(missing)}")
+            else:
+                news = [available[0]]
+
+        # One combined scenario: several stories go into a single sandbox so the
+        # agent can reason about how they compound or offset each other.
+        if isinstance(news, dict):
+            news = [news]
+        if not news:
+            raise HTTPException(400, "no news events selected")
+    except Exception:
+        _current_run["active"] = False   # never strand the claim on a bad request
+        raise
 
     asyncio.create_task(_run(news))
-    return {"started": True, "news_id": news.get("id"), "headline": news.get("headline")}
+    return {"started": True,
+            "count": len(news),
+            "news_ids": [e.get("id") for e in news],
+            "headlines": [e.get("headline") for e in news]}
 
 
-async def _run(news: dict[str, Any]) -> None:
+async def _run(news: list[dict[str, Any]]) -> None:
     async with _run_lock:
         run_id = f"run-{int(time.time())}"
         _current_run.update(active=True, run_id=run_id, started=time.time())
-        emit({"type": "state", "phase": "spawning", "attempt": 1, "run_id": run_id,
-              "headline": news.get("headline")})
+
+        # Record every event so this run can be replayed later. Replay must be a
+        # genuine past run, never a fixture.
+        recorded: list[dict[str, Any]] = []
+        t0 = time.time()
+
+        def rec(event: dict[str, Any]) -> None:
+            # Stamp a copy with seconds-since-start so replay can reproduce the real
+            # pacing. Copy, never mutate: the live UI must see the event untouched.
+            recorded.append({**event, "t": round(time.time() - t0, 3)})
+            emit(event)
+
+        rec({"type": "state", "phase": "spawning", "attempt": 1, "run_id": run_id,
+             "headline": news[0].get("headline"),
+             "headlines": [e.get("headline") for e in news]})
         try:
             import orchestrator
             portfolio = load_portfolio()
-            result = await orchestrator.run_analysis(news, portfolio, emit)
-            emit({"type": "result", "data": result})
+            payload = news[0] if len(news) == 1 else news
+            result = await orchestrator.run_analysis(payload, portfolio, rec)
+            rec({"type": "result", "data": result})
         except Exception as exc:  # never let a failure kill the stream
-            emit({"type": "state", "phase": "error", "message": f"{type(exc).__name__}: {exc}"})
+            rec({"type": "state", "phase": "error", "message": f"{type(exc).__name__}: {exc}"})
         finally:
             _current_run.update(active=False)
+            try:
+                d = RUNS / run_id
+                d.mkdir(parents=True, exist_ok=True)
+                with (d / "events.jsonl").open("w", encoding="utf-8") as fh:
+                    for e in recorded:
+                        fh.write(json.dumps(e, default=str) + "\n")
+
+                # Summary so the replay picker can render a row without parsing
+                # the whole stream.
+                res = next((e.get("data") for e in reversed(recorded)
+                            if e.get("type") == "result"), None) or {}
+                verdicts = [e for e in recorded if e.get("type") == "verdict"]
+                hz = res.get("horizons") or {}
+
+                def base(h: str):
+                    return ((hz.get(h) or {}).get("impact_pct") or {}).get("base")
+
+                meta = {
+                    "run_id": run_id,
+                    "news": news[0],
+                    "news_all": news,
+                    "started_at": t0,
+                    "duration_s": round(time.time() - t0, 1),
+                    "event_count": len(recorded),
+                    "attempts": (verdicts[-1].get("attempt") if verdicts else None),
+                    "passed": (verdicts[-1].get("passed") if verdicts else None),
+                    "headline": news[0].get("headline"),
+                    "short_base": base("short_term"),
+                    "medium_base": base("medium_term"),
+                    "long_base": base("long_term"),
+                    "result": res or None,
+                }
+                # The orchestrator writes its own richer run.json to a SIBLING dir
+                # (runs/<run_id>-<uuid>/). One logical run therefore lands in two
+                # directories: ours has the event stream, theirs has the verdict and
+                # result. Merge theirs in so the replay picker sees one complete run.
+                sibling: dict[str, Any] = {}
+                try:
+                    for cand in RUNS.glob(f"{run_id}-*"):
+                        f = cand / "run.json"
+                        if f.exists():
+                            sibling = json.loads(f.read_text(encoding="utf-8"))
+                            break
+                except Exception:
+                    sibling = {}
+
+                existing = {}
+                rj = d / "run.json"
+                if rj.exists():
+                    try:
+                        existing = json.loads(rj.read_text(encoding="utf-8"))
+                    except Exception:
+                        existing = {}
+
+                merged = {**meta}
+                for src in (sibling, existing):
+                    for k, v in src.items():
+                        if v not in (None, [], {}) and merged.get(k) in (None, [], {}):
+                            merged[k] = v
+                rj.write_text(json.dumps(merged, indent=2, default=str), encoding="utf-8")
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------- static

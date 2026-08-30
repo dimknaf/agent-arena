@@ -92,26 +92,106 @@
 
   <!-- ══════════════ HUD ══════════════ -->
   <footer id="hud">
-    <div class="hudcell hudticker">
-      <span class="hudlab">NEWS</span>
-      <div class="tickwin"><div id="tickInner"></div></div>
+    <div id="hudNews">
+      <button id="scanBtn" title="scan for live news">⟳<span>SCAN</span></button>
+      <button id="allBtn" title="select all events">☐ ALL</button>
+      <button id="promptBtn" title="show the exact Codex prompt">⌘<span>PROMPT</span></button>
+      <div id="newsStrip"></div>
     </div>
-    <div class="hudcell hudpips">
-      <span class="hudlab">ATTEMPTS</span>
-      <div id="pips"></div>
+
+    <div id="hudStats">
+      <div class="hudcell hudticker">
+        <span class="hudlab">WIRE</span>
+        <div class="tickwin"><div id="tickInner"></div></div>
+      </div>
+      <div class="hudcell hudpips">
+        <span class="hudlab">ATTEMPTS</span>
+        <div id="pips"></div>
+      </div>
+      <div class="hudcell hudcred">
+        <span class="hudlab">CREDITS</span>
+        <div id="credBar"></div>
+        <span id="credNum">1000</span>
+      </div>
+      <div class="hudcell hudclock">
+        <span class="hudlab">ELAPSED</span>
+        <span id="hudClock">00:00</span>
+      </div>
     </div>
-    <div class="hudcell hudcred">
-      <span class="hudlab">CREDITS</span>
-      <div id="credBar"></div>
-      <span id="credNum">1000</span>
-    </div>
-    <div class="hudcell hudclock">
-      <span class="hudlab">ELAPSED</span>
-      <span id="hudClock">00:00</span>
-    </div>
+
+    <button id="runBtn">
+      <span class="rbIcon">▶</span>
+      <span class="rbTxt">RUN ANALYSIS</span>
+      <span class="rbHint">press SPACE</span>
+    </button>
   </footer>
 
   <div id="flash"></div>
+  <div id="toast"></div>
+
+  <!-- ══════════════ ACT II · THE VERDICT ══════════════ -->
+  <div id="act2" hidden>
+    <div id="a2hero">
+      <div class="a2h-left">
+        <div class="a2kicker">ACT II · THE VERDICT<span class="a2esc">ESC to return to the arena</span></div>
+        <div id="a2thesis"></div>
+      </div>
+      <div class="a2h-right">
+        <div class="a2badges">
+          <span class="a2badge" id="a2method">—</span>
+          <span class="a2badge ev" id="a2evidence">EVIDENCE ×0</span>
+        </div>
+        <div class="a2conf">
+          <span class="a2clab">CONFIDENCE</span>
+          <span class="a2meter"><b id="a2confBar"></b></span>
+          <span class="a2cnum" id="a2confNum">0.00</span>
+        </div>
+      </div>
+      <div class="a2h-num">
+        <div class="a2nlab">PORTFOLIO IMPACT</div>
+        <div class="a2npct" id="a2pct">—</div>
+        <div class="a2nusd" id="a2usd">—</div>
+      </div>
+    </div>
+
+    <!-- BEAT D · horizon scrubber — one control, whole-screen consequence -->
+    <div id="a2scrub">
+      <span class="a2clab">HORIZON</span>
+      <div id="a2hz"></div>
+      <span class="a2sep"></span>
+      <span class="a2clab">BOOK AT THIS HORIZON</span>
+      <div id="a2pband"></div>
+      <span class="a2bandnum" id="a2bandNum">—</span>
+    </div>
+
+    <div id="a2mid">
+      <!-- BEAT A · the value cascade -->
+      <section class="a2panel" id="a2cascPanel">
+        <header class="a2ph">
+          <span class="a2pt">VALUE CASCADE</span>
+          <span class="a2ps" id="a2cascSub">click any step for its justification</span>
+          <span class="a2run" id="a2cascTk">—</span>
+        </header>
+        <div id="a2casc"></div>
+      </section>
+      <!-- BEAT E · banded reconciliation waterfall -->
+      <section class="a2panel" id="a2fallPanel">
+        <header class="a2ph">
+          <span class="a2pt">RECONCILIATION</span>
+          <span class="a2ps">Σ weight × impact, with low–high bands</span>
+          <span class="a2run" id="a2running">0.00%</span>
+        </header>
+        <div id="a2fall"></div>
+      </section>
+    </div>
+
+    <!-- BEAT B + C · cards carry the fans and the divergence flags -->
+    <div id="a2cards"></div>
+
+    <div id="a2detail" hidden></div>
+    <div id="a2evpanel" hidden></div>
+    <div id="a2prompt" hidden></div>
+  </div>
 </div>
 </div>
 

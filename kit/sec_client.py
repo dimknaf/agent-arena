@@ -20,6 +20,7 @@ Public API:
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
 import re
 import threading
@@ -288,6 +289,167 @@ def filing_text(cik: str, accession: str, primary_doc: str, max_chars: int = 400
 def recent_8ks_for_ticker(ticker: str, limit: int = 5) -> list[dict]:
     """One-liner: ticker -> newest 8-K filings (with item codes)."""
     return latest_filings(ticker_to_cik(ticker), forms=("8-K",), limit=limit)
+
+
+# --------------------------------------------------------------------------- #
+# 4. XBRL facts - shares outstanding, revenue, and market cap
+# --------------------------------------------------------------------------- #
+
+CONCEPT_URL = "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik10}/{taxonomy}/{tag}.json"
+
+
+def _date(s: str) -> _dt.date:
+    return _dt.date.fromisoformat(str(s)[:10])
+
+
+def company_concept(cik: str, tag: str, taxonomy: str = "us-gaap") -> dict:
+    """Raw XBRL companyconcept payload. taxonomy is 'dei' or 'us-gaap'."""
+    cik10 = str(cik).strip().upper().replace("CIK", "").zfill(10)
+    url = CONCEPT_URL.format(cik10=cik10, taxonomy=taxonomy, tag=tag)
+    data = _get(url).json()
+    data["_source_url"] = url
+    return data
+
+
+def _latest_fact(data: dict) -> dict | None:
+    """Newest observation across all unit types, by 'end' then 'filed'."""
+    rows: list[dict] = []
+    for unit_rows in (data.get("units") or {}).values():
+        rows.extend(r for r in unit_rows if r.get("val") is not None)
+    if not rows:
+        return None
+    return max(rows, key=lambda r: (str(r.get("end") or ""), str(r.get("filed") or "")))
+
+
+def shares_outstanding(ticker_or_cik: str) -> dict:
+    """Latest reported common shares outstanding, with provenance for citation.
+
+    Reads dei:EntityCommonStockSharesOutstanding (the 10-K/10-Q cover-page fact).
+
+    CAVEAT: companies with multiple share classes report this per class, so the
+    single newest row can understate the true total. Check ``all_recent`` - if
+    several rows share the same ``end`` date they are separate classes and you
+    should sum them. Returns:
+        {shares, as_of, form, accession, filed, cik, source_url, all_recent}
+    """
+    raw = str(ticker_or_cik).strip()
+    cik = raw.zfill(10) if raw.isdigit() else ticker_to_cik(raw)
+    # Not every registrant files the dei cover-page concept in a queryable form
+    # (multi-class issuers such as GOOGL 404 on it), so fall back through us-gaap.
+    candidates = (
+        ("dei", "EntityCommonStockSharesOutstanding"),
+        ("us-gaap", "CommonStockSharesOutstanding"),
+        ("us-gaap", "CommonStockSharesIssued"),
+        ("us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding"),
+    )
+    data = fact = None
+    for taxonomy, tag in candidates:
+        try:
+            d = company_concept(cik, tag, taxonomy=taxonomy)
+        except Exception:
+            continue
+        f = _latest_fact(d)
+        if f:
+            data, fact = d, f
+            break
+    if not fact or not data:
+        raise SECError(
+            f"No shares-outstanding facts for CIK {cik} under any of "
+            f"{[t for _, t in candidates]}. Fall back to parallel_client.search "
+            "for the share count and cite that source instead."
+        )
+    end = str(fact.get("end") or "")
+    same_date = [
+        r
+        for rows in (data.get("units") or {}).values()
+        for r in rows
+        if str(r.get("end") or "") == end and r.get("val") is not None
+    ]
+    return {
+        "cik": cik,
+        "shares": fact["val"],
+        "as_of": end,
+        "form": fact.get("form"),
+        "accession": fact.get("accn"),
+        "filed": fact.get("filed"),
+        "source_url": data["_source_url"],
+        "share_classes_on_as_of_date": len(same_date),
+        "sum_all_classes_on_as_of_date": sum(r["val"] for r in same_date),
+    }
+
+
+def market_cap(ticker: str, price_usd: float, *, sum_share_classes: bool = True) -> dict:
+    """Market cap from LIVE SEC shares outstanding x a price you supply.
+
+    Never hardcode a market cap - derive it here and cite ``source_url``.
+    Returns {ticker, market_cap_usd, shares, price_usd, as_of, form, source_url}.
+    """
+    so = shares_outstanding(ticker)
+    shares = (
+        so["sum_all_classes_on_as_of_date"]
+        if sum_share_classes and so["share_classes_on_as_of_date"] > 1
+        else so["shares"]
+    )
+    return {
+        "ticker": str(ticker).upper(),
+        "market_cap_usd": float(shares) * float(price_usd),
+        "shares": shares,
+        "price_usd": float(price_usd),
+        "as_of": so["as_of"],
+        "form": so["form"],
+        "accession": so["accession"],
+        "source_url": so["source_url"],
+    }
+
+
+def annual_revenue(ticker_or_cik: str) -> dict:
+    """Latest annual revenue (tries the usual us-gaap tags in order).
+
+    Useful as the starting point for ``revenue_line_usd``, but note this is the
+    TOTAL - you still have to attribute it to a business segment yourself, from
+    the filing's segment note or from research.
+    """
+    raw = str(ticker_or_cik).strip()
+    cik = raw.zfill(10) if raw.isdigit() else ticker_to_cik(raw)
+    tags = (
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "SalesRevenueNet",
+    )
+    # Issuers switch tags between years (NVDA dropped
+    # RevenueFromContractWithCustomerExcludingAssessedTax after FY2022), so gather
+    # candidates across ALL tags and take the globally newest - never first-tag-wins.
+    best: tuple[str, dict, str] | None = None
+    for tag in tags:
+        try:
+            data = company_concept(cik, tag, taxonomy="us-gaap")
+        except Exception:
+            continue
+        for r in (data.get("units") or {}).get("USD", []):
+            if not (r.get("start") and r.get("end") and r.get("val") is not None):
+                continue
+            if r.get("form") != "10-K" or r.get("fp") != "FY":
+                continue
+            # Annual periods only - 10-Ks also carry quarterly facts.
+            days = (_date(r["end"]) - _date(r["start"])).days
+            if not 340 <= days <= 400:
+                continue
+            if best is None or str(r["end"]) > str(best[1]["end"]):
+                best = (tag, r, data["_source_url"])
+    if best is None:
+        raise SECError(f"No annual revenue facts found for CIK {cik}")
+    tag, fact, src = best
+    return {
+        "cik": cik,
+        "tag": tag,
+        "revenue_usd": fact["val"],
+        "period": f"{fact.get('start')}..{fact.get('end')}",
+        "fiscal_year": fact.get("fy"),
+        "form": fact.get("form"),
+        "accession": fact.get("accn"),
+        "source_url": src,
+    }
 
 
 if __name__ == "__main__":  # pragma: no cover - smoke test

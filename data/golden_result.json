@@ -1,0 +1,752 @@
+{
+  "news_id": "evt-taiwan-quake",
+  "headline": "Magnitude 7.1 earthquake near Hsinchu halts TSMC leading-edge fabs; advanced packaging lines offline",
+  "published_at": "2026-08-28T01:40:00Z",
+  "thesis": "A quake near Hsinchu has idled TSMC's leading-edge lines and the CoWoS packaging that gates AI accelerator assembly. Valued as forward cash flow rather than price behaviour, almost all of the damage is timing: revenue deferred inside a disruption window, with only a small permanent share capitalised at each name's multiple. That is why the long-run portfolio impact is a fraction of the short-term move - the market prices panic in weeks, but only the permanently lost earnings survive to twelve months.",
+  "methodology": "fundamental_value_impact",
+  "confidence": 0.68,
+  "mechanism": [
+    {
+      "from": "M7.1 Hsinchu quake",
+      "to": "TSMC N3/N2 fabs",
+      "effect": "fabs evacuated and lines requalified, opening a multi-quarter allocation window rather than destroying capacity"
+    },
+    {
+      "from": "TSMC N3/N2 fabs",
+      "to": "CoWoS packaging",
+      "effect": "the single-source step for AI accelerator assembly sets the pace of the entire downstream chain"
+    },
+    {
+      "from": "CoWoS packaging",
+      "to": "NVDA / AVGO",
+      "effect": "revenue deferred out of the window, and a small permanent share of the AI socket capitalised at ~34x"
+    },
+    {
+      "from": "NVDA / AVGO",
+      "to": "MSFT Azure AI",
+      "effect": "a slipped capacity ramp against committed capex, hitting timing rather than the installed base"
+    },
+    {
+      "from": "MSFT Azure AI",
+      "to": "CAT / NEE",
+      "effect": "data-centre genset orders and grid interconnect demand defer with the build"
+    },
+    {
+      "from": "NVDA / AVGO",
+      "to": "JNJ / WMT / XOM",
+      "effect": "a positioning rotation into defensives that carries no fundamental value and decays to zero by the long horizon"
+    }
+  ],
+  "positions": [
+    {
+      "ticker": "AAPL",
+      "sector": "Technology Hardware",
+      "weight_pct": 15.04,
+      "value_before_usd": 15040.0,
+      "rationale": "Apple buys the leading-edge silicon for its autumn ramp from the idled lines, so a requalification window bleeds into a launch quarter. Almost all of it is timing: units deferred, not demand destroyed, which is why the permanent share is small.",
+      "confidence": 0.72,
+      "revenue_line_usd": 210000000000.0,
+      "affected_fraction": 0.42,
+      "duration_months": 9.0,
+      "permanent_share": 0.0722,
+      "margin": 0.26,
+      "earnings_multiple": 29.0,
+      "revenue_at_stake_usd": -4776030000.0,
+      "profit_at_stake_usd": -1241767800.0,
+      "value_at_stake_usd": -36011266200.0,
+      "market_cap_usd": 3429632300000.0,
+      "value_basis": "market_cap_usd $3,429.6bn = SEC EDGAR shares outstanding x $235.00 last close (kit.sec_client.market_cap); $210bn exposed revenue line x 42% affected x 9-month disruption window x 7.22% never recovered, at 26% margin, capitalised at 29x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -3.155,
+            "base": -2.3,
+            "high": -1.445
+          },
+          "impact_usd": {
+            "low": -474.51,
+            "base": -345.92,
+            "high": -217.33
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -2.37,
+            "base": -1.6,
+            "high": -0.83
+          },
+          "impact_usd": {
+            "low": -356.45,
+            "base": -240.64,
+            "high": -124.83
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -1.73,
+            "base": -1.05,
+            "high": -0.37
+          },
+          "impact_usd": {
+            "low": -260.19,
+            "base": -157.92,
+            "high": -55.65
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "sector": "Semiconductors",
+      "weight_pct": 14.0,
+      "value_before_usd": 14000.0,
+      "rationale": "The largest fundamental exposure in the book. NVIDIA is fabless and its accelerators clear through a single CoWoS packaging queue, so a disrupted allocation window both defers revenue and hands a slice of the AI socket to competing roadmaps permanently.",
+      "confidence": 0.85,
+      "revenue_line_usd": 180000000000.0,
+      "affected_fraction": 0.55,
+      "duration_months": 9.0,
+      "permanent_share": 0.104143,
+      "margin": 0.55,
+      "earnings_multiple": 34.0,
+      "revenue_at_stake_usd": -7732617750.0,
+      "profit_at_stake_usd": -4252939762.5,
+      "value_at_stake_usd": -144599951925.0,
+      "market_cap_usd": 4820000000000.0,
+      "value_basis": "market_cap_usd $4,820.0bn = SEC EDGAR shares outstanding x $200.00 last close (kit.sec_client.market_cap); $180bn exposed revenue line x 55% affected x 9-month disruption window x 10.41% never recovered, at 55% margin, capitalised at 34x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -8.69,
+            "base": -6.4,
+            "high": -4.11
+          },
+          "impact_usd": {
+            "low": -1216.6,
+            "base": -896.0,
+            "high": -575.4
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -6.285,
+            "base": -4.3,
+            "high": -2.315
+          },
+          "impact_usd": {
+            "low": -879.9,
+            "base": -602.0,
+            "high": -324.1
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -4.85,
+            "base": -3.0,
+            "high": -1.15
+          },
+          "impact_usd": {
+            "low": -679.0,
+            "base": -420.0,
+            "high": -161.0
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "sector": "Software",
+      "weight_pct": 12.6,
+      "value_before_usd": 12600.0,
+      "rationale": "Azure AI capacity is gated by accelerator deliveries, so the damage is a slipped revenue ramp against already-committed capex, not lost demand. The installed base and non-AI Azure revenue are untouched, so very little of it capitalises.",
+      "confidence": 0.66,
+      "revenue_line_usd": 95000000000.0,
+      "affected_fraction": 0.35,
+      "duration_months": 12.0,
+      "permanent_share": 0.046061,
+      "margin": 0.42,
+      "earnings_multiple": 32.0,
+      "revenue_at_stake_usd": -1531528250.0,
+      "profit_at_stake_usd": -643241865.0,
+      "value_at_stake_usd": -20583739680.0,
+      "market_cap_usd": 3742474927464.0,
+      "value_basis": "market_cap_usd $3,742.5bn = SEC EDGAR shares outstanding x $504.00 last close (kit.sec_client.market_cap); $95bn exposed revenue line x 35% affected x 12-month disruption window x 4.61% never recovered, at 42% margin, capitalised at 32x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -2.345,
+            "base": -1.7,
+            "high": -1.055
+          },
+          "impact_usd": {
+            "low": -295.47,
+            "base": -214.2,
+            "high": -132.93
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -1.5,
+            "base": -1.0,
+            "high": -0.5
+          },
+          "impact_usd": {
+            "low": -189.0,
+            "base": -126.0,
+            "high": -63.0
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.93,
+            "base": -0.55,
+            "high": -0.17
+          },
+          "impact_usd": {
+            "low": -117.18,
+            "base": -69.3,
+            "high": -21.42
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "AVGO",
+      "sector": "Semiconductors",
+      "weight_pct": 10.2,
+      "value_before_usd": 10200.0,
+      "rationale": "Custom AI ASICs and AI networking silicon share the same leading-edge nodes and the same packaging queue, and Broadcom's design-win cycle is long enough that a missed allocation window can move a socket for a full product generation.",
+      "confidence": 0.79,
+      "revenue_line_usd": 62000000000.0,
+      "affected_fraction": 0.48,
+      "duration_months": 9.0,
+      "permanent_share": 0.107419,
+      "margin": 0.46,
+      "earnings_multiple": 33.0,
+      "revenue_at_stake_usd": -2397592080.0,
+      "profit_at_stake_usd": -1102892356.8,
+      "value_at_stake_usd": -36395447774.4,
+      "market_cap_usd": 1617577267320.0,
+      "value_basis": "market_cap_usd $1,617.6bn = SEC EDGAR shares outstanding x $340.00 last close (kit.sec_client.market_cap); $62bn exposed revenue line x 48% affected x 9-month disruption window x 10.74% never recovered, at 46% margin, capitalised at 33x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -6.26,
+            "base": -4.6,
+            "high": -2.94
+          },
+          "impact_usd": {
+            "low": -638.52,
+            "base": -469.2,
+            "high": -299.88
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -4.545,
+            "base": -3.1,
+            "high": -1.655
+          },
+          "impact_usd": {
+            "low": -463.59,
+            "base": -316.2,
+            "high": -168.81
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -3.65,
+            "base": -2.25,
+            "high": -0.85
+          },
+          "impact_usd": {
+            "low": -372.3,
+            "base": -229.5,
+            "high": -86.7
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "JPM",
+      "sector": "Financials",
+      "weight_pct": 10.08,
+      "value_before_usd": 10080.0,
+      "rationale": "No supply-chain channel. The only fundamental line at risk is a modest slice of equity underwriting and advisory fees if the AI issuance calendar slows; net interest income, which drives the earnings power, is untouched by this event.",
+      "confidence": 0.44,
+      "revenue_line_usd": 170000000000.0,
+      "affected_fraction": 0.04,
+      "duration_months": 6.0,
+      "permanent_share": 0.032476,
+      "margin": 0.32,
+      "earnings_multiple": 13.0,
+      "revenue_at_stake_usd": -110418400.0,
+      "profit_at_stake_usd": -35333888.0,
+      "value_at_stake_usd": -459340544.0,
+      "market_cap_usd": 765557624160.0,
+      "value_basis": "market_cap_usd $765.6bn = SEC EDGAR shares outstanding x $288.00 last close (kit.sec_client.market_cap); $170bn exposed revenue line x 4% affected x 6-month disruption window x 3.25% never recovered, at 32% margin, capitalised at 13x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -0.7925,
+            "base": -0.55,
+            "high": -0.3075
+          },
+          "impact_usd": {
+            "low": -79.88,
+            "base": -55.44,
+            "high": -31.0
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -0.34,
+            "base": -0.2,
+            "high": -0.06
+          },
+          "impact_usd": {
+            "low": -34.27,
+            "base": -20.16,
+            "high": -6.05
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.146,
+            "base": -0.06,
+            "high": 0.026
+          },
+          "impact_usd": {
+            "low": -14.72,
+            "base": -6.05,
+            "high": 2.62
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "XOM",
+      "sector": "Energy",
+      "weight_pct": 8.0,
+      "value_before_usd": 8000.0,
+      "rationale": "No transmission channel at all. Crude and refining spreads do not respond to a Taiwanese fab outage, so affected_fraction is set to zero and the long-run fundamental impact is exactly nil rather than a guessed small number.",
+      "confidence": 0.6,
+      "revenue_line_usd": 340000000000.0,
+      "affected_fraction": 0.0,
+      "duration_months": 0.0,
+      "permanent_share": 0.0,
+      "margin": 0.1,
+      "earnings_multiple": 12.0,
+      "revenue_at_stake_usd": 0.0,
+      "profit_at_stake_usd": 0.0,
+      "value_at_stake_usd": 0.0,
+      "market_cap_usd": 513988995000.0,
+      "value_basis": "market_cap_usd $514.0bn = SEC EDGAR shares outstanding x $125.00 last close (kit.sec_client.market_cap); $340bn exposed revenue line x 0% affected x 0-month disruption window x 0.00% never recovered, at 10% margin, capitalised at 12x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": 0.1125,
+            "base": 0.25,
+            "high": 0.3875
+          },
+          "impact_usd": {
+            "low": 9.0,
+            "base": 20.0,
+            "high": 31.0
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -0.0225,
+            "base": 0.05,
+            "high": 0.1225
+          },
+          "impact_usd": {
+            "low": -1.8,
+            "base": 4.0,
+            "high": 9.8
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.05,
+            "base": 0.0,
+            "high": 0.05
+          },
+          "impact_usd": {
+            "low": -4.0,
+            "base": 0.0,
+            "high": 4.0
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "WMT",
+      "sector": "Consumer Staples",
+      "weight_pct": 8.0,
+      "value_before_usd": 8000.0,
+      "rationale": "Marginally negative on fundamentals: a sustained outage raises consumer-electronics cost of goods on a thin-margin line. At this duration it barely reaches shelf pricing, so the capitalised value is close to zero.",
+      "confidence": 0.51,
+      "revenue_line_usd": 170000000000.0,
+      "affected_fraction": 0.03,
+      "duration_months": 6.0,
+      "permanent_share": 0.122011,
+      "margin": 0.03,
+      "earnings_multiple": 34.0,
+      "revenue_at_stake_usd": -311128050.0,
+      "profit_at_stake_usd": -9333841.5,
+      "value_at_stake_usd": -317350611.0,
+      "market_cap_usd": 793374624100.0,
+      "value_basis": "market_cap_usd $793.4bn = SEC EDGAR shares outstanding x $100.00 last close (kit.sec_client.market_cap); $170bn exposed revenue line x 3% affected x 6-month disruption window x 12.20% never recovered, at 3% margin, capitalised at 34x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": 0.3075,
+            "base": 0.55,
+            "high": 0.7925
+          },
+          "impact_usd": {
+            "low": 24.6,
+            "base": 44.0,
+            "high": 63.4
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": 0.005,
+            "base": 0.1,
+            "high": 0.195
+          },
+          "impact_usd": {
+            "low": 0.4,
+            "base": 8.0,
+            "high": 15.6
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.114,
+            "base": -0.04,
+            "high": 0.034
+          },
+          "impact_usd": {
+            "low": -9.12,
+            "base": -3.2,
+            "high": 2.72
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "JNJ",
+      "sector": "Health Care",
+      "weight_pct": 7.92,
+      "value_before_usd": 7920.0,
+      "rationale": "No fundamental exposure whatsoever - pharmaceutical and medtech cash flows are unrelated to semiconductor supply. Its entire modelled move is short-horizon positioning as money rotates out of AI hardware, and that decays to nothing.",
+      "confidence": 0.57,
+      "revenue_line_usd": 90000000000.0,
+      "affected_fraction": 0.0,
+      "duration_months": 0.0,
+      "permanent_share": 0.0,
+      "margin": 0.24,
+      "earnings_multiple": 16.0,
+      "revenue_at_stake_usd": 0.0,
+      "profit_at_stake_usd": 0.0,
+      "value_at_stake_usd": 0.0,
+      "market_cap_usd": 424142153072.0,
+      "value_basis": "market_cap_usd $424.1bn = SEC EDGAR shares outstanding x $176.00 last close (kit.sec_client.market_cap); $90bn exposed revenue line x 0% affected x 0-month disruption window x 0.00% never recovered, at 24% margin, capitalised at 16x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": 0.5025,
+            "base": 0.85,
+            "high": 1.1975
+          },
+          "impact_usd": {
+            "low": 39.8,
+            "base": 67.32,
+            "high": 94.84
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": 0.0325,
+            "base": 0.15,
+            "high": 0.2675
+          },
+          "impact_usd": {
+            "low": 2.57,
+            "base": 11.88,
+            "high": 21.19
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.05,
+            "base": 0.0,
+            "high": 0.05
+          },
+          "impact_usd": {
+            "low": -3.96,
+            "base": 0.0,
+            "high": 3.96
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "CAT",
+      "sector": "Industrials",
+      "weight_pct": 7.12,
+      "value_before_usd": 7120.0,
+      "rationale": "Data-centre power generation is Caterpillar's fastest-growing line, so a slower hyperscaler build pushes genset and turbine orders right. The construction and mining cycle dominates earnings and is untouched, capping the fundamental damage.",
+      "confidence": 0.54,
+      "revenue_line_usd": 14000000000.0,
+      "affected_fraction": 0.35,
+      "duration_months": 9.0,
+      "permanent_share": 0.069384,
+      "margin": 0.19,
+      "earnings_multiple": 19.0,
+      "revenue_at_stake_usd": -254986200.0,
+      "profit_at_stake_usd": -48447378.0,
+      "value_at_stake_usd": -920500182.0,
+      "market_cap_usd": 204555325605.0,
+      "value_basis": "market_cap_usd $204.6bn = SEC EDGAR shares outstanding x $445.00 last close (kit.sec_client.market_cap); $14bn exposed revenue line x 35% affected x 9-month disruption window x 6.94% never recovered, at 19% margin, capitalised at 19x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -1.535,
+            "base": -1.1,
+            "high": -0.665
+          },
+          "impact_usd": {
+            "low": -109.29,
+            "base": -78.32,
+            "high": -47.35
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -1.065,
+            "base": -0.7,
+            "high": -0.335
+          },
+          "impact_usd": {
+            "low": -75.83,
+            "base": -49.84,
+            "high": -23.85
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.77,
+            "base": -0.45,
+            "high": -0.13
+          },
+          "impact_usd": {
+            "low": -54.82,
+            "base": -32.04,
+            "high": -9.26
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    },
+    {
+      "ticker": "NEE",
+      "sector": "Utilities",
+      "weight_pct": 7.04,
+      "value_before_usd": 7040.0,
+      "rationale": "A slower AI build defers part of the data-centre interconnect pipeline, but the regulated rate base and signed PPAs supply the earnings. Only the growth increment is at risk, and only for as long as the build pauses.",
+      "confidence": 0.49,
+      "revenue_line_usd": 9000000000.0,
+      "affected_fraction": 0.3,
+      "duration_months": 12.0,
+      "permanent_share": 0.021577,
+      "margin": 0.3,
+      "earnings_multiple": 21.0,
+      "revenue_at_stake_usd": -58257900.0,
+      "profit_at_stake_usd": -17477370.0,
+      "value_at_stake_usd": -367024770.0,
+      "market_cap_usd": 183510048128.0,
+      "value_basis": "market_cap_usd $183.5bn = SEC EDGAR shares outstanding x $88.00 last close (kit.sec_client.market_cap); $9bn exposed revenue line x 30% affected x 12-month disruption window x 2.16% never recovered, at 30% margin, capitalised at 21x.",
+      "variant_basis": "low doubles the permanent share and lengthens the window (share moves to a rival roadmap); high assumes full catch-up inside the window with no lasting share loss. Band is +/-60% of base long-term, narrower nearer in.",
+      "horizons": {
+        "short_term": {
+          "impact_pct": {
+            "low": -0.6575,
+            "base": -0.45,
+            "high": -0.2425
+          },
+          "impact_usd": {
+            "low": -46.29,
+            "base": -31.68,
+            "high": -17.07
+          },
+          "method": "sentiment_positioning",
+          "note": "0-1 month: price, not value. Positioning and risk appetite only - not one dollar of cash flow has changed yet. Expect this to overshoot the fundamentals, and expect most of it to reverse."
+        },
+        "medium_term": {
+          "impact_pct": {
+            "low": -0.485,
+            "base": -0.3,
+            "high": -0.115
+          },
+          "impact_usd": {
+            "low": -34.14,
+            "base": -21.12,
+            "high": -8.1
+          },
+          "method": "earnings_revision_chain",
+          "note": "1-12 months: consensus earnings revisions as the disruption is sized. The deferred revenue lands in this window, so the move converges part-way from the panic price toward capitalised value."
+        },
+        "long_term": {
+          "impact_pct": {
+            "low": -0.37,
+            "base": -0.2,
+            "high": -0.03
+          },
+          "impact_usd": {
+            "low": -26.05,
+            "base": -14.08,
+            "high": -2.11
+          },
+          "method": "fundamental_value_chain",
+          "note": "12 months+: only PERMANENTLY lost earnings survive. Deferred revenue has been recognised by now and drops out entirely, which is why this is far smaller than the short-term move. Equals value_at_stake_usd / market_cap_usd."
+        }
+      }
+    }
+  ],
+  "portfolio_value_before_usd": 100000.0,
+  "horizons": {
+    "short_term": {
+      "impact_pct": {
+        "low": -2.78717,
+        "base": -1.95944,
+        "high": -1.13171
+      },
+      "impact_usd": {
+        "low": -2787.17,
+        "base": -1959.44,
+        "high": -1131.71
+      }
+    },
+    "medium_term": {
+      "impact_pct": {
+        "low": -2.03201,
+        "base": -1.35208,
+        "high": -0.67215
+      },
+      "impact_usd": {
+        "low": -2032.01,
+        "base": -1352.08,
+        "high": -672.15
+      }
+    },
+    "long_term": {
+      "impact_pct": {
+        "low": -1.54134,
+        "base": -0.93209,
+        "high": -0.32284
+      },
+      "impact_usd": {
+        "low": -1541.34,
+        "base": -932.09,
+        "high": -322.84
+      }
+    }
+  },
+  "citations": [
+    {
+      "claim": "Precedent, prior Taiwan quake: TSMC evacuated its fabs and suspended construction in the aftermath, and confirmed all personnel were safe.",
+      "url": "https://www.sdxcentral.com/news/tsmc-evacuates-fabs-and-suspends-construction-in-earthquake-aftermath-confirms-all-personnel-are-safe/",
+      "source": "SDxCentral",
+      "published_at": ""
+    },
+    {
+      "claim": "Precedent, prior Taiwan quake: TSMC evacuated its factories in Taiwan following the earthquake.",
+      "url": "https://www.microchipusa.com/industry-news/taiwan-earthquake-tsmc-in-taiwan-evacuates-factories",
+      "source": "Microchip USA",
+      "published_at": ""
+    },
+    {
+      "claim": "Downside bound, prior Taiwan quake: TSMC's chipmaking facilities were rocked by the strongest quake in 27 years but escaped unharmed, its earthquake protection measures paying off. Evacuation does not imply structural damage, which is why this analysis capitalises only a small permanent share.",
+      "url": "https://www.tomshardware.com/tech-industry/semiconductors/tsmc-chipmaking-factories-rocked-by-magnitude-7-0-earthquake-that-was-the-strongest-in-27-years-but-facilities-escaped-unharmed-companys-earthquake-protection-measures-pay-off",
+      "source": "Tom's Hardware",
+      "published_at": ""
+    },
+    {
+      "claim": "Seismic reference: magnitude, depth and epicentre data for earthquakes in the Taiwan region.",
+      "url": "https://earthquake.usgs.gov/",
+      "source": "U.S. Geological Survey",
+      "published_at": ""
+    }
+  ],
+  "budget": {
+    "codex_credits_used": 5.12,
+    "parallel_calls_used": 8,
+    "attempts": 2
+  }
+}

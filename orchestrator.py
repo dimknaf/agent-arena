@@ -24,6 +24,7 @@ import inspect
 import json
 import os
 import shlex
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -42,10 +43,67 @@ SCHEMA_PATH = REPO_ROOT / "verifier" / "impact.schema.json"
 
 SNAPSHOT_NAME = os.environ.get("DAYTONA_SNAPSHOT", "quant-agent-v1")
 
+# --- provisioning fallback --------------------------------------------------
+# The hackathon API key can READ snapshots but POST /snapshots returns 403, so the
+# baked snapshot may not exist. We fall back to a plain base image and provision at
+# runtime. Measured cold path: ~16s total (create 0.6s, codex 4.2s, python 10.3s).
+#
+# node:22-bookworm chosen over python:3.11-slim-bookworm because it already ships
+# Python 3.11.2 AND node 22, so neither runtime needs an apt install of the other --
+# only pip itself is missing. Verified live.
+BASE_IMAGE = os.environ.get("DAYTONA_BASE_IMAGE", "node:22-bookworm")
+FORCE_BASE_IMAGE = os.environ.get("AGENT_ARENA_FORCE_BASE_IMAGE", "").lower() in (
+    "1", "true", "yes", "on",
+)
+
+# MUST match what skills/portfolio-impact/SKILL.md tells the agent:
+#   sys.path.insert(0, "/opt/kit"); import parallel_client, sec_client
+# A mismatch here does not fail loudly -- the agent silently falls back to raw
+# requests/curl, losing the Parallel client, the SEC User-Agent guard (a bare EDGAR
+# call gets 403 + a ~10 minute IP block) and get_call_count() budget telemetry.
+REMOTE_KIT_DIR = "/opt/kit"
+# Codex discovers skills at $CWD/.agents/skills, $REPO_ROOT/.agents/skills,
+# $HOME/.agents/skills and /etc/codex/skills. Anywhere else is silently ignored.
+REMOTE_SKILLS_DIR = "/etc/codex/skills"
+
+# Proves the agent's tools are actually reachable, rather than assuming.
+KIT_VERIFY_CMD = (
+    "ls -la /etc/codex/skills/ 2>&1 | tail -5; "
+    "ls -la /opt/kit/ 2>&1 | tail -5; "
+    "python3 -c \"import sys; sys.path.insert(0,'/opt/kit'); "
+    "import parallel_client, sec_client; print('kit imports OK')\""
+)
+
+# One shell command, so the whole provision is a single streamed session command.
+# `--break-system-packages` is required: Debian bookworm marks its Python as
+# externally managed (PEP 668) and pip refuses to install without it.
+PROVISION_SCRIPT = (
+    "set -e; "
+    "mkdir -p /root/.codex && chmod 700 /root/.codex; "
+    "echo '>>> installing codex-cli'; "
+    "npm i -g @openai/codex; "
+    "echo '>>> ensuring python toolchain'; "
+    "python3 -m pip --version >/dev/null 2>&1 || "
+    "{ apt-get update -qq && apt-get install -y -qq python3-pip; }; "
+    "python3 -m pip install --quiet --break-system-packages "
+    "numpy pandas requests jsonschema python-dateutil; "
+    "echo '>>> versions'; "
+    "codex --version; "
+    "python3 -c \"import pandas,numpy;print('pandas',pandas.__version__,'numpy',numpy.__version__)\""
+)
+
 # --- run policy -------------------------------------------------------------
 MAX_ATTEMPTS = 4
-WALL_CLOCK_BUDGET_S = 6 * 60  # 6 minutes total, all attempts
+WALL_CLOCK_BUDGET_S = int(os.environ.get("ARENA_WALL_CLOCK_S", 12 * 60))
+# Measured live: a full first attempt (research + pandas grid + write) took 311s,
+# so the original 360s budget left no room for even one retry. 12 min allows the
+# designed fail-then-fix arc. Override with ARENA_WALL_CLOCK_S.
 ATTEMPT_POLL_INTERVAL_S = 2.0
+# Printed by every session command so we can detect completion ourselves; see the long
+# comment in _run_session_command for why the API's exit_code cannot be trusted alone.
+DONE_SENTINEL = "__ARENA_CMD_DONE__"
+# If the log stream goes quiet for this long, re-read the log non-streaming.
+IDLE_WATCHDOG_S = 45.0
 
 # Sandbox paths. The schema deliberately lives OUTSIDE `-C /work` so the agent's
 # workspace root cannot reach it -> it cannot rewrite its own contract.
@@ -86,6 +144,12 @@ def host_auth_path() -> Path:
 # --- retry routing (CONTRACTS.md step 6) ------------------------------------
 INITIAL_MODEL = "gpt-5.6-terra"
 INITIAL_EFFORT = "medium"
+
+# Opt-in ONLY. Unset => the codex invocation is byte-identical to the green 290s run.
+# Set to "detailed" / "concise" / "auto" to ask Codex to emit reasoning summary items, which
+# the parser maps to THOUGHT rail rows. There is no CLI flag for this; -c overrides any
+# config.toml key. Kill switch: unset ARENA_REASONING_SUMMARY.
+REASONING_SUMMARY = os.environ.get("ARENA_REASONING_SUMMARY", "").strip()
 
 ROUTE_MECHANICAL = ("gpt-5.6-luna", "low", "MECHANICAL FIX")
 ROUTE_REREASON = ("gpt-5.6-terra", "high", "RE-REASONING")
@@ -210,6 +274,76 @@ def _fallback_verify(result: dict, portfolio: dict, measured: dict) -> dict:
             "" if expected_hash == actual_hash else "schema file was modified in the sandbox")
 
     return {"passed": all(c["passed"] for c in checks), "checks": checks}
+
+
+def _strictify_schema(node: Any, repairs: list[str], path: str = "") -> Any:
+    """Make a JSON Schema acceptable to OpenAI structured outputs (strict mode).
+
+    `codex --output-schema` feeds the schema to the API in strict mode, which demands
+    that EVERY object node lists every one of its `properties` in `required` and sets
+    `additionalProperties: false`. A single optional field makes the whole request fail
+    with HTTP 400 invalid_json_schema, and codex dies in ~4s having written nothing.
+
+    We normalise a copy at upload time rather than editing verifier/impact.schema.json
+    (owned by workstream B). This only ever ADDS keys to `required`, so anything valid
+    against the normalised schema is still valid against the original -- verify.py's own
+    jsonschema pass is unaffected.
+
+    REPAIRS ARE REPORTED, NEVER SILENT. Repairing means a strict-mode mistake in
+    impact.schema.json no longer kills the run -- which is what we want on stage -- but it
+    also removes the HTTP 400 as a feedback channel, leaving verifier/test_golden.py's
+    test_schema_is_strict_mode_clean as the only other gate. So `repairs` collects every
+    node we had to touch and the caller surfaces it loudly. Silently diverged copies are
+    a worse failure mode than a loud death, precisely because nobody notices them.
+    """
+    if isinstance(node, list):
+        return [_strictify_schema(n, repairs, path) for n in node]
+    if not isinstance(node, dict):
+        return node
+
+    out = {
+        k: _strictify_schema(v, repairs, f"{path}.{k}" if path else k)
+        for k, v in node.items()
+    }
+    props = out.get("properties")
+    if isinstance(props, dict) and props:
+        missing = [k for k in props if k not in (out.get("required") or [])]
+        if missing:
+            repairs.append(f"{path or 'root'}: added to required {missing}")
+        if out.get("additionalProperties") is not False:
+            repairs.append(f"{path or 'root'}: set additionalProperties=false")
+        out["required"] = list(props.keys())
+        out["additionalProperties"] = False
+    return out
+
+
+def _schema_upload_bytes() -> tuple[bytes, list[str]]:
+    """The exact schema bytes we upload, plus any strict-mode repairs we had to make.
+
+    V6 compares these bytes against what we read back out of the sandbox, so the
+    serialisation must be stable and byte-identical on both sides.
+    """
+    raw = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    repairs: list[str] = []
+    normalised = _strictify_schema(raw, repairs)
+    return json.dumps(normalised, indent=2, sort_keys=True).encode("utf-8"), repairs
+
+
+def _news_list(news: Any) -> list[dict]:
+    """Normalise the news argument: a single event dict or a list of them."""
+    if isinstance(news, dict):
+        return [news]
+    if isinstance(news, (list, tuple)):
+        return [n for n in news if isinstance(n, dict)]
+    raise TypeError(f"news must be a dict or a list of dicts, got {type(news).__name__}")
+
+
+def _news_id(news: Any) -> str:
+    """Stable id for the scenario -- the single event's id, or the joined ids."""
+    ids = []
+    for ev in _news_list(news):
+        ids.append(str(ev.get("id") or ev.get("news_id") or "unknown"))
+    return "+".join(ids) if ids else "unknown"
 
 
 def _route_for(failed_checks: list[dict], attempt: int) -> tuple[str, str, str]:
@@ -488,6 +622,7 @@ class Orchestrator:
         self.model = INITIAL_MODEL
         self.effort = INITIAL_EFFORT
         self.phase = "spawning"
+        self.uploaded_schema_sha = ""
 
     # -- emit wrappers ------------------------------------------------------
     @property
@@ -685,13 +820,37 @@ class Orchestrator:
         await self.emit_tool(kind, label, detail=detail, status=status, body=body)
 
     # -- sandbox lifecycle --------------------------------------------------
-    async def _upload_inputs(self, sandbox, news: dict, portfolio: dict, budget: dict) -> None:
+    async def _upload_inputs(self, sandbox, news: Any, portfolio: dict, budget: dict) -> None:
         from daytona import FileUpload
 
-        schema_bytes = SCHEMA_PATH.read_bytes()
+        # Normalised for OpenAI strict mode; see _strictify_schema.
+        # Captured ONCE here: V6 must compare what we uploaded against what comes back
+        # out of the sandbox. Re-reading the file at verify time made V6 fail whenever
+        # verifier/impact.schema.json changed on the host mid-run (workstream B editing
+        # it), reporting agent tampering that never happened.
+        schema_bytes, schema_repairs = _schema_upload_bytes()
+        self.uploaded_schema_sha = _sha256_bytes(schema_bytes)
+        if schema_repairs:
+            # Loud on purpose. Repairing keeps the demo alive, but it also removes the
+            # HTTP 400 that would otherwise announce the mistake, so we announce it here.
+            await self.emit_tool(
+                "SYSTEM", "SCHEMA REPAIRED FOR STRICT MODE",
+                detail=f"{len(schema_repairs)} node(s) - run verifier/ tests",
+                status="fail",
+                body=(
+                    "verifier/impact.schema.json is not strict-mode clean. The sandbox copy "
+                    "was repaired so the run can proceed, but the repo file and the sandbox "
+                    "copy have now DIVERGED. Fix the file and re-run "
+                    "verifier/test_golden.py::test_schema_is_strict_mode_clean.\n\n"
+                    + "\n".join(schema_repairs[:20])
+                ),
+            )
+            for r in schema_repairs[:20]:
+                await self.emit_log("stderr", f"[orchestrator] schema repair: {r}")
         uploads = [
             FileUpload(source=json.dumps(portfolio, indent=2).encode(), destination=f"{WORK_DIR}/portfolio.json"),
-            FileUpload(source=json.dumps(news, indent=2).encode(), destination=f"{WORK_DIR}/news.json"),
+            FileUpload(source=json.dumps(_news_list(news), indent=2).encode(),
+                       destination=f"{WORK_DIR}/news.json"),
             FileUpload(source=json.dumps(budget, indent=2).encode(), destination=f"{WORK_DIR}/budget.json"),
             # OUTSIDE the -C /work workspace root: the agent cannot rewrite its own contract.
             FileUpload(source=schema_bytes, destination=REMOTE_SCHEMA),
@@ -704,6 +863,199 @@ class Orchestrator:
         except Exception:
             for up in uploads:
                 await sandbox.fs.upload_file(up.source, up.destination)
+
+    async def _create_sandbox(self, daytona, env_vars: dict) -> tuple[Any, bool]:
+        """Create the sandbox. Returns (sandbox, needs_provision).
+
+        Fast path: the pre-baked `quant-agent-v1` snapshot. If snapshot creation is
+        unavailable -- the hackathon key gets 403 on POST /snapshots, so the snapshot
+        may simply not exist -- fall back to a plain base image and provision at
+        runtime (~16s measured). Set AGENT_ARENA_FORCE_BASE_IMAGE=1 to skip the
+        snapshot attempt entirely; unset it to flip back to the fast path with no
+        code change once the key is fixed.
+        """
+        from daytona import CreateSandboxFromImageParams, CreateSandboxFromSnapshotParams
+
+        # NOTE: created UNLOCKED on purpose. Provisioning needs the npm registry and
+        # apt; the agent must not. `_lock_egress()` applies the allow list via
+        # update_network_settings immediately before the first codex run.
+        common = dict(
+            auto_stop_interval=0,  # never let it idle-die mid-run
+            auto_archive_interval=0,
+            ttl_minutes=SANDBOX_TTL_MINUTES,  # safety net if the host process dies
+            env_vars=env_vars,
+            labels={"app": "agent-arena", "run_id": self.run_id},
+        )
+
+        async def _create(make_params, timeout: int):
+            return await daytona.create(make_params(), timeout=timeout)
+
+        if not FORCE_BASE_IMAGE:
+            try:
+                sandbox = await _create(
+                    lambda: CreateSandboxFromSnapshotParams(
+                        snapshot=SNAPSHOT_NAME, **common
+                    ),
+                    180,
+                )
+                await self.emit_tool(
+                    "SYSTEM", f"sandbox {getattr(sandbox, 'id', '?')}",
+                    detail=f"snapshot {SNAPSHOT_NAME}", status="ok",
+                )
+                return sandbox, False
+            except Exception as exc:
+                await self.emit_tool(
+                    "SYSTEM", "snapshot unavailable - provisioning from base image",
+                    detail=SNAPSHOT_NAME, status="fail", body=repr(exc)[:400],
+                )
+        else:
+            await self.emit_tool(
+                "SYSTEM", "provisioning from base image",
+                detail="AGENT_ARENA_FORCE_BASE_IMAGE=1", status="ok",
+            )
+
+        sandbox = await _create(
+            lambda: CreateSandboxFromImageParams(image=BASE_IMAGE, **common),
+            300,
+        )
+        await self.emit_tool(
+            "SYSTEM", f"sandbox {getattr(sandbox, 'id', '?')}",
+            detail=f"base image {BASE_IMAGE}", status="ok",
+        )
+        return sandbox, True
+
+    async def _provision_base_image(self, sandbox, session_id: str, deadline: float) -> None:
+        """Install codex-cli + the Python stack on a bare base image.
+
+        Streams output so the screen shows a live PROVISIONING beat instead of
+        sitting silent. Measured ~15s on node:22-bookworm.
+        """
+        t0 = time.monotonic()
+        await self.emit_tool(
+            "SYSTEM", "installing codex-cli and python stack",
+            detail=BASE_IMAGE, status="running",
+        )
+        exit_code = await self._run_session_command(
+            sandbox, session_id, PROVISION_SCRIPT, deadline
+        )
+        secs = time.monotonic() - t0
+
+        # The script echoes `codex --version` and the pandas/numpy versions; recover
+        # them from the tail of the streamed output for the rail row.
+        versions = [
+            ln for ln in self.state.plain_lines[-40:]
+            if "codex-cli" in ln or ln.strip().startswith("[stdout] pandas")
+        ]
+        detail = " | ".join(v.split("] ", 1)[-1] for v in versions[-2:]) or f"{secs:.0f}s"
+
+        if exit_code != 0:
+            await self.emit_tool(
+                "SYSTEM", "provisioning FAILED", detail=f"exit {exit_code} after {secs:.0f}s",
+                status="fail",
+            )
+            raise RuntimeError(
+                f"Base-image provisioning failed (exit {exit_code}). The sandbox has no "
+                f"codex-cli, so the run cannot continue. Check that {BASE_IMAGE} can reach "
+                "the npm registry through the domain allow list."
+            )
+
+        await self.emit_tool(
+            "SYSTEM", "sandbox ready", detail=f"{detail} in {secs:.0f}s", status="ok",
+        )
+
+    async def _upload_agent_assets(self, sandbox) -> None:
+        """Upload kit/ and skills/ that the snapshot would otherwise have baked in.
+
+        Files are uploaded individually rather than via a directory helper: the SDK's
+        Image context path handling is what bit us on Windows, and per-file uploads
+        keep the remote layout explicit.
+        """
+        for local_name, remote_root in (("kit", REMOTE_KIT_DIR), ("skills", REMOTE_SKILLS_DIR)):
+            src = REPO_ROOT / local_name
+            if not src.is_dir():
+                continue
+            files = [
+                p for p in sorted(src.rglob("*"))
+                if p.is_file()
+                and "__pycache__" not in p.parts
+                and p.suffix not in (".pyc", ".pyo")
+            ]
+            if not files:
+                continue
+            with contextlib.suppress(Exception):
+                await sandbox.fs.create_folder(remote_root, "755")
+            uploaded = 0
+            for f in files:
+                rel = f.relative_to(src).as_posix()  # POSIX: never Windows backslashes
+                try:
+                    await sandbox.fs.upload_file(f.read_bytes(), f"{remote_root}/{rel}")
+                    uploaded += 1
+                except Exception as exc:
+                    await self.emit_log("stderr", f"[orchestrator] upload {rel} failed: {exc!r}")
+            await self.emit_tool(
+                "SYSTEM", f"{local_name} uploaded",
+                detail=f"{uploaded} file(s) -> {remote_root}", status="ok",
+            )
+
+    async def _verify_agent_assets(self, sandbox, session_id: str, deadline: float) -> None:
+        """Prove kit/ and the skill are actually reachable by the agent.
+
+        If the skill is not discovered, the agent runs without our methodology and the
+        reconciliation rule -- which is the whole demo -- so we check rather than assume.
+        Non-fatal: we report loudly and continue, since the prompt also authorises raw
+        HTTP as a fallback.
+        """
+        before = len(self.state.plain_lines)
+        exit_code = await self._run_session_command(
+            sandbox, session_id, KIT_VERIFY_CMD, min(deadline, time.monotonic() + 60)
+        )
+        output = "\n".join(
+            ln.split("] ", 1)[-1] for ln in self.state.plain_lines[before:]
+        )
+        ok = exit_code == 0 and "kit imports OK" in output
+        skill_seen = "SKILL.md" in output or "portfolio-impact" in output
+        await self.emit_tool(
+            "SYSTEM",
+            "agent toolkit verified" if ok else "agent toolkit NOT reachable",
+            detail=(
+                f"kit imports OK, skill {'found' if skill_seen else 'MISSING'}"
+                if ok else f"exit {exit_code} -- agent will fall back to raw HTTP"
+            ),
+            status="ok" if (ok and skill_seen) else "fail",
+            body=output[:2000],
+        )
+
+    async def _lock_egress(self, sandbox) -> None:
+        """Apply the domain allow list immediately before the agent starts.
+
+        We create the sandbox UNLOCKED so provisioning can reach the npm registry and
+        apt, then lock it down before any agent code runs. The agent therefore never
+        has access to a package registry at all.
+        """
+        allow_list = os.environ.get("DAYTONA_DOMAIN_ALLOW_LIST", DEFAULT_DOMAIN_ALLOW_LIST)
+        if not allow_list:
+            await self.emit_tool(
+                "SYSTEM", "EGRESS NOT LOCKED", detail="no allow list configured", status="fail",
+            )
+            return
+        domains = [d.strip() for d in allow_list.split(",") if d.strip()]
+        try:
+            await sandbox.update_network_settings(domain_allow_list=allow_list)
+        except Exception as exc:
+            # Never silently claim a lock we do not have -- but do not overclaim the
+            # opposite either. Measured: this org returns "Network access is restricted
+            # and cannot be overridden", i.e. the platform imposes its own policy that
+            # we are not permitted to replace. Report what it actually said.
+            msg = str(getattr(exc, "message", "") or exc)
+            await self.emit_tool(
+                "SYSTEM", "EGRESS LOCK REJECTED BY PLATFORM",
+                detail=msg[:140], status="fail", body=msg[:500],
+            )
+            return
+        await self.emit_tool(
+            "SYSTEM", f"EGRESS LOCKED - {len(domains)} domains",
+            detail=", ".join(domains), status="ok",
+        )
 
     async def _upload_credentials(self, sandbox, auth_path: Path) -> None:
         """Transplant the host's ChatGPT auth.json into the sandbox.
@@ -736,40 +1088,120 @@ class Orchestrator:
             pass
         return None
 
-    def _build_prompt(self, news: dict, portfolio: dict, attempt: int) -> str:
+    def _build_prompt(self, news: Any, portfolio: dict, attempt: int) -> str:
+        """The task prompt. Kept tight: it is in context on every turn of every attempt."""
+        events = _news_list(news)
+        n = len(portfolio.get("positions", []))
         tickers = ", ".join(p.get("ticker", "?") for p in portfolio.get("positions", []))
-        return f"""You are a quantitative analyst agent. Produce a rigorous portfolio-impact analysis.
 
-INPUTS (already on disk, workspace root /work):
-  /work/news.json      the news event to analyse
-  /work/portfolio.json the portfolio ({len(portfolio.get('positions', []))} US equities: {tickers})
-  /work/budget.json    your budget; this is attempt {attempt}
+        nl = chr(10)
+        if len(events) == 1:
+            e = events[0]
+            scenario = (
+                f"ONE event: {e.get('headline', '')}{nl}"
+                f"  news_id for your output: {_news_id(news)}"
+            )
+        else:
+            lines = nl.join(
+                f"  {i}. [{ev.get('id') or ev.get('news_id')}] {ev.get('headline','')}"
+                for i, ev in enumerate(events, 1)
+            )
+            scenario = (
+                f"{len(events)} events forming ONE COMBINED SCENARIO. Reason about how they{nl}"
+                f"compound or offset each other -- do not analyse them independently"
+                f" and add up.{nl}"
+                f"{lines}{nl}"
+                f"  news_id for your output: {_news_id(news)}"
+            )
 
-CONTRACT (read-only, outside your workspace): {REMOTE_SCHEMA}
-Read that schema. Your output MUST validate against it. Write the final object to /work/result.json.
+        return f"""You are a fundamental equity analyst. Compute the forward-looking VALUE impact
+of the news on the portfolio, and write /work/result.json.
 
-WHAT TO DO - do not hand-wave, write and RUN code:
- 1. Read the news and the portfolio.
- 2. Research the mechanism. Use the network (curl / python requests) for corroboration.
-    SEC EDGAR REQUIRES a descriptive User-Agent header or it returns 403 and IP-blocks you
-    for ~10 minutes; use the value in $SEC_USER_AGENT.
- 3. Write a Python file (e.g. /work/analysis.py) that computes the per-position impacts.
-    Actually execute it. Do not fabricate numbers in prose.
- 4. ARITHMETIC THAT IS CHECKED BY A HOST-SIDE VERIFIER - get it exactly right:
-      * include EVERY position from /work/portfolio.json - all {len(portfolio.get('positions', []))} of
-        them, no subsets, no extras. A name you judge unaffected still gets a row with impact_pct 0.
-      * copy `weight_pct` and `value_before_usd` straight from the portfolio file; the
-        weights must still sum to 100
-      * for each position: impact_usd == value_before_usd * impact_pct / 100   (+/- $1)
-      * portfolio_impact_pct == SUM over positions of (weight_pct/100 * impact_pct)  (+/- 0.01)
-        Compute this by summation in code; never round it by hand.
-      * portfolio_impact_usd == portfolio_value_before_usd * portfolio_impact_pct / 100
-      * `citations` needs at least 2 entries with real http(s) URLs you actually consulted
-      * `budget.attempts` MUST be {attempt}
- 5. Write /work/result.json. Emit the same JSON object as your final message.
+SCENARIO
+{scenario}
 
-Keep the thesis 40-600 characters, mechanism 1-6 links, methodology one of
-beta_weighted_shock | sector_exposure_map | correlation_contagion.
+INPUTS (workspace root /work)
+  news.json       the event(s) above, in full
+  portfolio.json  {n} US equities: {tickers}
+  budget.json     this is attempt {attempt}
+CONTRACT (read-only, OUTSIDE your workspace): {REMOTE_SCHEMA}
+Read it first. Your output MUST validate against it.
+
+TOOLKIT (already installed, use it)
+  import sys; sys.path.insert(0, "{REMOTE_KIT_DIR}")
+  import parallel_client, sec_client
+  parallel_client.search(query, max_results=5)      -> web research
+  sec_client.ticker_to_cik(t) / latest_filings(cik) -> SEC, with the required User-Agent
+  guard built in. NEVER call EDGAR raw: a missing User-Agent returns 403 and IP-blocks
+  you for ~10 minutes, which kills the run.
+
+THIS IS NOT A PRICE STUDY. Do not use betas, correlations, or historical price reactions.
+Value comes from business fundamentals. Every number must be DERIVED IN CODE, not asserted.
+
+THE CHAIN -- per position, emit each input so the arithmetic is auditable:
+  1 EXPOSURE    revenue_line_usd     annual USD of the business line the news touches
+  2 MAGNITUDE   affected_fraction    share of that line actually hit (0-1)
+  3 DURATION    duration_months = the ECONOMIC DISRUPTION WINDOW, not the physical outage:
+                  share shift, requalification, roadmap slip. Typically 6-12 months.
+                  A 2-week fab outage still has a 6-12 month economic window.
+                permanent_share (0-1) = the fraction of THAT window's revenue never recovered.
+                These two MULTIPLY, so using the physical outage length here collapses every
+                result to ~0.0% and the analysis looks broken.
+  4 PROFIT      revenue_at_stake_usd = revenue_line_usd * affected_fraction
+                                       * (duration_months/12) * permanent_share
+                profit_at_stake_usd  = revenue_at_stake_usd * margin
+  5 CAPITALISE  value_at_stake_usd   = profit_at_stake_usd * earnings_multiple
+  6 EQUITY      impact_pct           = value_at_stake_usd / market_cap_usd * 100
+
+MARKET CAPS MUST BE FETCHED LIVE. Never invent, guess or hardcode one -- V7 divides by this
+number, so a made-up cap silently moves the gate and invalidates the whole chain. Use:
+    sec_client.market_cap(ticker, price_usd)   # EDGAR shares outstanding x price
+Verified working for all 10 holdings. Put the provenance in `value_basis`, e.g.
+"market_cap_usd $4,820.0bn = SEC EDGAR shares outstanding x $200.00 last close
+(kit.sec_client.market_cap)", and add a citation for it.
+
+THREE HORIZONS, each with a low/base/high range (a 3x3 grid per position):
+  short_term  0-1 month    method "sentiment_positioning" -- headline severity, narrative,
+                           crowding, momentum. NOT the chain: near-term moves are sentiment
+                           and flow, not value.
+  medium_term 1-6 months   the chain, discounted for what is already priced in
+  long_term   6-24 months  the full chain
+Divergence between short_term and long_term is the most interesting result. Do not suppress it.
+Expect a DECLINING profile: the market prices panic in weeks, but only permanently lost
+earnings survive to 12+ months, so |long_term| is typically well under |short_term| (a good
+run lands near short -1.96% / medium -1.35% / long -0.93% at portfolio level). A FLAT profile
+across the three horizons means the methodology was not applied -- rework it.
+Each POSITION horizon also needs `method` (<=60 chars) and `note` (10-300 chars).
+Put what separates low/base/high in `variant_basis`.
+
+ORDERING: low <= base <= high on BOTH impact_pct and impact_usd, every horizon, position and
+portfolio. For NEGATIVE impacts this means `low` is the MOST NEGATIVE (the worst case) and
+`high` the least negative. Getting this backwards is the single most common failure.
+
+NINE RECONCILIATION GATES (host-verified, strict). The portfolio block is TOP-LEVEL `horizons`,
+a sibling of portfolio_value_before_usd -- there is NO "portfolio" key. For each horizon h and
+each variant v in low/base/high:
+  horizons[h].impact_pct[v]
+      == SUM over positions of (weight_pct/100 * positions[i].horizons[h].impact_pct[v])  +/-0.01
+  impact_usd == value_before_usd * impact_pct / 100                                       +/-$1
+  long_term.impact_pct.base == value_at_stake_usd / market_cap_usd * 100                  +/-0.05
+Compute the WHOLE grid in ONE pandas script -- it is three rows of arithmetic, not 90 separate
+decisions -- run it, and PRINT THE RESIDUALS before writing the file. Never round by hand.
+
+ALSO REQUIRED
+  * every position from portfolio.json, all {n}, no subsets and no extras
+  * copy weight_pct and value_before_usd straight from portfolio.json
+  * ALL SIX chain inputs are required on EVERY position as real numbers -- never null, never
+    omitted. A name you judge unaffected still states a REAL market_cap_usd (> 0) and zeroes
+    the FRACTION (affected_fraction 0.0 and/or permanent_share 0.0), which makes the whole
+    chain and its long_term.base come out at 0.0. It does not zero the market cap.
+  * ranges, or the schema rejects you: impact_pct in [-60,60]; affected_fraction and
+    permanent_share in [0,1]; margin in [-1,1]; earnings_multiple in [0,200];
+    duration_months in [0,120]; value_basis and variant_basis 20-400 chars each
+  * mechanism: 1-6 links; `from` and `to` are max 22 chars (they render as graph nodes)
+  * citations: >=2 real URLs you actually fetched, including the market-cap source
+  * budget.attempts MUST be {attempt}
+Write /work/result.json and emit the same object as your final message.
 """
 
     def _codex_cmd(self, prompt: str, *, resume: bool) -> str:
@@ -796,6 +1228,10 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             f"--output-schema {REMOTE_SCHEMA}",
             f"-o {REMOTE_RESULT}",
         ]
+        if REASONING_SUMMARY:
+            flags.append(
+                f"-c model_reasoning_summary={shlex.quote(REASONING_SUMMARY)}"
+            )
         if not resume:
             flags.append(f"-C {WORK_DIR}")  # accepted by `exec`, rejected by `exec resume`
 
@@ -805,20 +1241,54 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             f"{shlex.quote(prompt)} < /dev/null"
         )
 
-    async def _run_codex(self, sandbox, session_id: str, command: str, deadline: float) -> int:
-        """Start the agent async, stream both pipes, wait for exit. Returns exit code."""
+    async def _run_session_command(
+        self, sandbox, session_id: str, command: str, deadline: float
+    ) -> int:
+        """Start a command async, stream both pipes, wait for exit. Returns exit code.
+
+        Used for both the codex run and base-image provisioning -- anything long enough
+        that `process.exec`'s 10s default timeout would kill it.
+        """
         from daytona import SessionExecuteRequest
 
+        # COMPLETION DETECTION -- do not rely on get_session_command().exit_code alone.
+        # Measured live: while a follow-websocket is attached to a command's logs, the
+        # API keeps returning exit_code=None indefinitely (600s observed for a command
+        # that finished in ~40s), with no error. The identical poll works when no
+        # websocket is attached. So we append our own sentinel and treat that as truth,
+        # keeping the API poll only as a secondary signal.
+        wrapped = f"( {command} ); echo \"{DONE_SENTINEL}:$?\""
+
         resp = await sandbox.process.execute_session_command(
-            session_id, SessionExecuteRequest(command=command, run_async=True)
+            session_id, SessionExecuteRequest(command=wrapped, run_async=True)
         )
         cmd_id = getattr(resp, "cmd_id", None) or getattr(resp, "id", None)
         if not cmd_id:
             raise RuntimeError(f"Daytona did not return a command id: {resp!r}")
-        # Print the response shape once so we can confirm the attribute name at runtime.
-        print(f"[orchestrator] SessionExecuteResponse -> cmd_id={cmd_id} attrs={list(getattr(resp, 'model_fields', {}) or {})}")
 
         queue: asyncio.Queue = asyncio.Queue()
+        done: asyncio.Future = asyncio.get_running_loop().create_future()
+        last_output = [time.monotonic()]
+
+        def _finish(code: int) -> None:
+            if not done.done():
+                done.set_result(code)
+
+        def _scan_sentinel(text: str) -> Optional[int]:
+            """Return the exit code if `text` carries our sentinel."""
+            if DONE_SENTINEL not in text:
+                return None
+            tail = text.split(DONE_SENTINEL, 1)[1].lstrip(":").strip()
+            digits = ""
+            for ch in tail:
+                if ch.isdigit() or (ch == "-" and not digits):
+                    digits += ch
+                else:
+                    break
+            try:
+                return int(digits)
+            except ValueError:
+                return 0
 
         # CRITICAL: these callbacks must never block - put_nowait and return.
         async def on_stdout(chunk: str) -> None:
@@ -842,9 +1312,14 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
         async def consume() -> None:
             while True:
                 which, chunk = await queue.get()
+                last_output[0] = time.monotonic()
                 buffers[which] += chunk
                 while "\n" in buffers[which]:
                     line, buffers[which] = buffers[which].split("\n", 1)
+                    code = _scan_sentinel(line)
+                    if code is not None:
+                        _finish(code)
+                        continue  # never surface the sentinel to the UI
                     await self.handle_raw_line(which, line)
 
         stream_task = asyncio.create_task(stream())
@@ -856,6 +1331,17 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                 if time.monotonic() > deadline:
                     await self.emit_log("stderr", "[orchestrator] wall-clock budget exhausted")
                     break
+
+                # 1) primary: our sentinel, seen in the stream (reacts within one tick)
+                try:
+                    exit_code = await asyncio.wait_for(
+                        asyncio.shield(done), timeout=ATTEMPT_POLL_INTERVAL_S
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    pass
+
+                # 2) secondary: the API's own exit code, if it ever materialises
                 try:
                     cmd = await sandbox.process.get_session_command(session_id, cmd_id)
                     code = getattr(cmd, "exit_code", None)
@@ -864,14 +1350,40 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                         break
                 except Exception as exc:
                     await self.emit_log("stderr", f"[orchestrator] poll failed: {exc!r}")
-                await asyncio.sleep(ATTEMPT_POLL_INTERVAL_S)
+
+                # 3) watchdog: if the stream has gone quiet the websocket may have died
+                #    without raising. Re-read the log non-streaming and look for the
+                #    sentinel there before assuming the command is still running.
+                if time.monotonic() - last_output[0] > IDLE_WATCHDOG_S:
+                    last_output[0] = time.monotonic()
+                    try:
+                        logs = await sandbox.process.get_session_command_logs(session_id, cmd_id)
+                        blob = " ".join(
+                            str(getattr(logs, attr, "") or "")
+                            for attr in ("output", "stdout", "stderr")
+                        )
+                        code = _scan_sentinel(blob)
+                        if code is not None:
+                            await self.emit_log(
+                                "stderr",
+                                "[orchestrator] stream went quiet; recovered exit code from log fetch",
+                            )
+                            exit_code = code
+                            break
+                    except Exception as exc:
+                        await self.emit_log("stderr", f"[orchestrator] log refetch failed: {exc!r}")
         finally:
-            # give the stream a moment to flush the tail, then tear both down
-            await asyncio.sleep(1.5)
+            # Give the stream a moment to flush the tail, then tear both down. Every
+            # await here is bounded: a websocket that will not close must never be able
+            # to hang the run.
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(asyncio.sleep(1.5), timeout=3)
             for task in (stream_task, consume_task):
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+            with contextlib.suppress(Exception):
+                await asyncio.wait(
+                    {stream_task, consume_task}, timeout=5
+                )  # abandon stragglers rather than await them forever
             for which, leftover in buffers.items():
                 if leftover.strip():
                     await self.handle_raw_line(which, leftover)
@@ -920,7 +1432,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             print(f"[orchestrator] failed to save run: {exc!r}")
 
     # -- the main loop ------------------------------------------------------
-    async def run(self, news: dict, portfolio: dict) -> dict:
+    async def run(self, news: Any, portfolio: dict) -> dict:
         api_key = os.environ.get("DAYTONA_API_KEY")
         if not api_key:
             raise RuntimeError(
@@ -979,35 +1491,7 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
 
         try:
             await self.emit_state("spawning")
-            create_params = CreateSandboxFromSnapshotParams(
-                snapshot=SNAPSHOT_NAME,
-                auto_stop_interval=0,  # never let it idle-die mid-run
-                auto_archive_interval=0,
-                ttl_minutes=SANDBOX_TTL_MINUTES,  # safety net if the host process dies
-                env_vars=env_vars,
-                labels={"app": "agent-arena", "run_id": self.run_id},
-                domain_allow_list=os.environ.get(
-                    "DAYTONA_DOMAIN_ALLOW_LIST", DEFAULT_DOMAIN_ALLOW_LIST
-                ),
-            )
-            try:
-                sandbox = await daytona.create(
-                    create_params,
-                    timeout=180,
-                    on_snapshot_create_logs=lambda chunk: print(f"[snapshot] {chunk}"),
-                )
-            except Exception as exc:
-                # Egress locking is the most likely field to be rejected by the API;
-                # retry once without it rather than losing the demo.
-                await self.emit_log("stderr", f"[orchestrator] create failed ({exc!r}); retrying without egress lock")
-                create_params.domain_allow_list = None
-                sandbox = await daytona.create(
-                    create_params,
-                    timeout=180,
-                    on_snapshot_create_logs=lambda chunk: print(f"[snapshot] {chunk}"),
-                )
-            await self.emit_tool("SYSTEM", f"sandbox {getattr(sandbox, 'id', '?')}",
-                                 detail=SNAPSHOT_NAME, status="ok")
+            sandbox, needs_provision = await self._create_sandbox(daytona, env_vars)
 
             budget = {
                 "max_attempts": MAX_ATTEMPTS,
@@ -1021,7 +1505,17 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
             await self._upload_credentials(sandbox, auth_path)
             await sandbox.process.create_session(session_id)
 
+            if needs_provision:
+                await self._provision_base_image(sandbox, session_id, deadline)
+            # Unconditional (belt and braces): on the snapshot path these are baked in,
+            # but re-uploading is cheap and guarantees kit/skills are present either way.
+            await self._upload_agent_assets(sandbox)
+            await self._verify_agent_assets(sandbox, session_id, deadline)
+            # Lock egress only now: provisioning needs npm + apt, the agent must not.
+            await self._lock_egress(sandbox)
+
             base_prompt = self._build_prompt(news, portfolio, 1)
+            last_invoked: tuple[str, str] = ("", "")
 
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 self.attempt = attempt
@@ -1044,17 +1538,30 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                 with contextlib.suppress(Exception):
                     await sandbox.fs.delete_file(REMOTE_RESULT)
 
-                if attempt == 1:
-                    prompt, resume = base_prompt, False
+                # `codex exec resume --last` refuses a model switch ("This session was
+                # recorded with model gpt-5.6-terra but is resuming with gpt-5.6-luna"),
+                # and our retry routing changes the model on almost every reroute. So
+                # resume only when the model AND effort are unchanged; otherwise start a
+                # fresh exec carrying the failure list in the prompt.
+                same_model = (self.model, self.effort) == last_invoked
+                if attempt == 1 or not same_model:
+                    if attempt == 1:
+                        prompt, resume = base_prompt, False
+                    else:
+                        prompt, resume = (
+                            f"{base_prompt}\n\n{self._retry_prompt(last_report, attempt)}",
+                            False,
+                        )
                 else:
                     prompt, resume = self._retry_prompt(last_report, attempt), True
+                last_invoked = (self.model, self.effort)
 
                 await self.emit_state("running")
                 cmd = self._codex_cmd(prompt, resume=resume)
                 await self.emit_tool("SYSTEM", f"codex attempt {attempt}",
                                      detail=f"{self.model} / {self.effort}", status="running",
                                      body=cmd)
-                exit_code = await self._run_codex(sandbox, session_id, cmd, deadline)
+                exit_code = await self._run_session_command(sandbox, session_id, cmd, deadline)
                 await self.emit_log("stdout", f"[orchestrator] codex exited {exit_code}")
 
                 # Retrying an auth failure just burns the clock -- fail loudly instead.
@@ -1086,14 +1593,14 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                         f"{self._retry_prompt(last_report, attempt)}"
                     )
                     fallback_cmd = self._codex_cmd(fallback_prompt, resume=False)
-                    exit_code = await self._run_codex(sandbox, session_id, fallback_cmd, deadline)
+                    exit_code = await self._run_session_command(sandbox, session_id, fallback_cmd, deadline)
                     await self.emit_log(
                         "stdout", f"[orchestrator] fallback codex exec exited {exit_code}"
                     )
                     result, err = await self._download_result(sandbox)
 
                 sandbox_hash = await self._sandbox_schema_hash(sandbox)
-                local_schema_hash = _sha256_bytes(SCHEMA_PATH.read_bytes())
+                local_schema_hash = self.uploaded_schema_sha
 
                 measured = {
                     "attempts": attempt,
@@ -1203,7 +1710,7 @@ and set budget.attempts to {attempt}. Emit the corrected JSON object as your fin
 # ===========================================================================
 
 
-async def run_analysis(news: dict, portfolio: dict, emit: Callable[[dict], Any]) -> dict:
+async def run_analysis(news: Any, portfolio: dict, emit: Callable[[dict], Any]) -> dict:
     """Run one news-event analysis inside a fresh Daytona sandbox.
 
     Args:
@@ -1295,13 +1802,122 @@ async def _smoke() -> None:
         elif t == "result":
             print("== RESULT " + json.dumps(ev["data"])[:400])
 
+    news: Any = CANNED_NEWS
+    if len(sys.argv) > 2 and sys.argv[1] == "--news":
+        ids = [i.strip() for i in sys.argv[2].split(",") if i.strip()]
+        loaded = [_load_news(i) for i in ids]
+        news = loaded[0] if len(loaded) == 1 else loaded
+        for ev in loaded:
+            print(f"[smoke] news: {ev.get('id')} - {ev.get('headline','')[:80]}")
+
+    t0 = time.monotonic()
     try:
-        result = await run_analysis(CANNED_NEWS, _load_portfolio(), printer)
-        print("\nFINAL RESULT:\n" + json.dumps(result, indent=2)[:3000])
+        result = await run_analysis(news, _load_portfolio(), printer)
+        print(f"\n=== TOTAL WALL CLOCK: {time.monotonic() - t0:.1f}s ===")
+        print("\nFINAL RESULT:\n" + json.dumps(result, indent=2))
     except Exception as exc:
-        print(f"\nRUN FAILED: {exc}")
+        print(f"\n=== FAILED after {time.monotonic() - t0:.1f}s ===")
+        print(f"RUN FAILED: {exc}")
         raise SystemExit(1)
 
 
+def _load_news(news_id: str) -> dict:
+    """Pull one event out of data/news_samples.json by id."""
+    p = REPO_ROOT / "data" / "news_samples.json"
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    items = raw if isinstance(raw, list) else (
+        raw.get("events") or raw.get("news") or raw.get("samples") or []
+    )
+    if isinstance(items, dict):
+        items = list(items.values())
+    for n in items:
+        if isinstance(n, dict) and n.get("id") == news_id or n.get("news_id") == news_id:
+            return n
+    raise SystemExit(
+        f"news id {news_id!r} not found. Available: "
+        f"{[n.get('id') for n in items if isinstance(n, dict)]}"
+    )
+
+
+async def _provision_check() -> None:
+    """Time the cold provisioning path without burning a full analysis run.
+
+    Creates a sandbox from the base image, provisions it, uploads kit/skills,
+    verifies they are reachable, applies the egress lock, then deletes the sandbox.
+    """
+    if not os.environ.get("DAYTONA_API_KEY"):
+        raise SystemExit("DAYTONA_API_KEY is not set (see .env).")
+
+    from daytona import AsyncDaytona, DaytonaConfig
+
+    def printer(ev: dict) -> None:
+        if ev.get("type") == "tool":
+            print(f"  [{ev['kind']:<7}] {ev['status']:<7} {ev['label']} :: {ev.get('detail','')}")
+        elif ev.get("type") == "log":
+            print(f"  * {ev['stream']}: {ev['text'][:150]}")
+
+    orc = Orchestrator(printer, run_id="provision-check")
+    cfg: dict[str, Any] = {"api_key": os.environ["DAYTONA_API_KEY"]}
+    if os.environ.get("DAYTONA_API_URL"):
+        cfg["api_url"] = os.environ["DAYTONA_API_URL"]
+    if os.environ.get("DAYTONA_TARGET"):
+        cfg["target"] = os.environ["DAYTONA_TARGET"]
+
+    daytona = AsyncDaytona(DaytonaConfig(**cfg))
+    sandbox = None
+    session_id = "provision-check"
+    marks: list[tuple[str, float]] = []
+    t0 = time.monotonic()
+
+    def mark(label: str) -> None:
+        marks.append((label, time.monotonic() - t0))
+
+    try:
+        env_vars = {"CODEX_HOME": CODEX_HOME, "PYTHONUNBUFFERED": "1"}
+        sec_ua = os.environ.get("SEC_USER_AGENT")
+        if sec_ua:
+            env_vars["SEC_USER_AGENT"] = sec_ua
+
+        sandbox, needs_provision = await orc._create_sandbox(daytona, env_vars)
+        mark("create")
+        await sandbox.process.create_session(session_id)
+
+        deadline = t0 + 600
+        if needs_provision:
+            await orc._provision_base_image(sandbox, session_id, deadline)
+            mark("provision (codex + python)")
+        else:
+            print("  (snapshot path -- no provisioning needed)")
+
+        await orc._upload_agent_assets(sandbox)
+        mark("upload kit/skills")
+        await orc._verify_agent_assets(sandbox, session_id, deadline)
+        mark("verify toolkit")
+        await orc._lock_egress(sandbox)
+        mark("egress lock")
+
+        print("\n===== PROVISION CHECK TIMING =====")
+        print(f"image          : {BASE_IMAGE}")
+        prev = 0.0
+        for label, at in marks:
+            print(f"{label:<26}: +{at - prev:5.1f}s  (t={at:5.1f}s)")
+            prev = at
+        print(f"{'TOTAL COLD PATH':<26}: {marks[-1][1]:5.1f}s")
+    finally:
+        if sandbox is not None:
+            with contextlib.suppress(Exception):
+                await sandbox.process.delete_session(session_id)
+            try:
+                await sandbox.delete()
+                print("sandbox deleted")
+            except Exception as exc:
+                print(f"WARNING: sandbox delete failed ({exc!r}) -- delete it by hand")
+        with contextlib.suppress(Exception):
+            await daytona.close()
+
+
 if __name__ == "__main__":
-    asyncio.run(_smoke())
+    if "--provision-check" in sys.argv:
+        asyncio.run(_provision_check())
+    else:
+        asyncio.run(_smoke())
