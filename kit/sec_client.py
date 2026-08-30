@@ -109,7 +109,6 @@ def get_session() -> requests.Session:
                     "User-Agent": _user_agent(),
                     "Accept-Encoding": "gzip, deflate",
                     "Accept": "application/json, text/html;q=0.9, */*;q=0.8",
-                    "Host-Note": "polite-client",
                 }
             )
             _session = s
