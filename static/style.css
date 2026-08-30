@@ -120,9 +120,9 @@ body{
 #pnlAgent{border-color:rgba(203,166,247,.22)}
 
 .strip{
-  flex:none;display:flex;align-items:center;gap:11px;
-  padding:14px 20px;
-  font-family:var(--mono);font-size:19px;letter-spacing:.02em;
+  flex:none;display:flex;align-items:center;gap:9px;
+  padding:13px 18px;
+  font-family:var(--mono);font-size:18px;letter-spacing:0;
   border-bottom:1px solid rgba(205,214,244,.11);
   background:linear-gradient(90deg, rgba(203,166,247,.10), transparent 60%);
   white-space:nowrap;
@@ -134,9 +134,9 @@ body{
 #sAttempt{color:var(--yellow);font-weight:700}
 #sClock{color:var(--subtext)}
 #sTok{color:var(--cyan)}
-#spark{width:180px;height:30px;display:block;opacity:.95}
+#spark{width:150px;height:30px;display:block;opacity:.95;flex:none}
 
-.sPhase{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.14em}
+.sPhase{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.1em;flex:none}
 .sPhase .led{
   width:14px;height:14px;border-radius:50%;
   background:var(--overlay);box-shadow:0 0 0 0 currentColor;
@@ -278,13 +278,17 @@ body{
 
 /* ── tombstone ────────────────────────────── */
 #tomb{
-  position:absolute;inset:0;z-index:20;
+  position:absolute;inset:0;z-index:30;
   display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(180deg, rgba(17,17,27,.94), rgba(24,24,37,.98));
-  animation:fadein .6s ease both;
+  /* backdrop is opaque the instant it appears — a hard cut reads as "it died".
+     only the content animates, so nothing depends on a fade completing. */
+  background:linear-gradient(180deg,#14141f 0%,#181825 55%,#11111b 100%);
+  opacity:1;
 }
-@keyframes fadein{from{opacity:0;transform:scale(1.02)}to{opacity:1;transform:none}}
-.tombinner{text-align:center;padding:40px}
+#tomb[hidden]{display:none!important}
+[hidden]{display:none!important}
+@keyframes fadein{from{opacity:0;transform:translate3d(0,14px,0) scale(.97)}to{opacity:1;transform:none}}
+.tombinner{text-align:center;padding:40px;animation:fadein .55s ease both}
 .tombicon{font-size:96px;color:var(--surface2);line-height:1}
 .tombtitle{
   margin-top:18px;font-family:var(--mono);font-size:52px;font-weight:700;
@@ -405,7 +409,9 @@ body{
   transition:opacity .5s ease;
   box-shadow:0 0 10px rgba(166,227,161,.35);
 }
-.cseg.off{opacity:.13;box-shadow:none}
+/* spent segments switch background instantly (no transition on background)
+   so the drained portion always reads grey even mid-fade */
+.cseg.off{opacity:.34;background:var(--surface2)!important;box-shadow:none}
 .cseg.warn{background:var(--amber);box-shadow:0 0 10px rgba(250,179,135,.35)}
 .cseg.crit{background:var(--red);box-shadow:0 0 10px rgba(243,139,168,.4)}
 #credNum{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--text);flex:none;width:78px;text-align:right}

@@ -173,8 +173,12 @@ async def index() -> FileResponse:
     page = STATIC / "index.html"
     if not page.exists():
         raise HTTPException(503, "static/index.html not built yet")
-    return FileResponse(page)
+    return FileResponse(page, headers={"Cache-Control": "no-store"})
 
 
 if STATIC.exists():
+    # index.html references its assets relatively ("app.js", "style.css") but is served
+    # from "/", so those resolve to "/app.js". Mount static at BOTH paths — at root
+    # (html=True) so the relative refs resolve, and at /static for explicit references.
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.mount("/", StaticFiles(directory=STATIC, html=True), name="root")

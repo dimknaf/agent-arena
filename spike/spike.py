@@ -154,7 +154,7 @@ async def main() -> int:
             "--disable fast_mode -m gpt-5.6-terra -c model_reasoning_effort=\"low\" "
             "--json --output-schema /verifier/spike.schema.json "
             "-o /work/result.json -C /work "
-            "'What is 17 * 23? Reply with the answer as a string and your confidence.' 2>&1"
+            "'What is 17 * 23? Reply with the answer as a string and your confidence.' < /dev/null 2>&1"
         )
         code, out = await run(codex_cmd, "codex exec --output-schema  <-- THE CRITICAL TEST",
                               timeout=300)
@@ -186,7 +186,7 @@ async def main() -> int:
             "--skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "
             "--disable fast_mode --json --output-schema /verifier/spike.schema.json "
             "-o /work/result2.json -C /work "
-            "'VERIFICATION FAILED: confidence must be exactly 0.99. Fix and re-emit.' 2>&1",
+            "'VERIFICATION FAILED: confidence must be exactly 0.99. Fix and re-emit.' < /dev/null 2>&1",
             "codex exec resume + --output-schema", timeout=300)
         try:
             p2 = json.loads((await sandbox.fs.download_file("/work/result2.json")).decode())

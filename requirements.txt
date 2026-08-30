@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 python-dotenv
 daytona
+anyio>=4.9
 jsonschema
 requests
 pandas

@@ -35,8 +35,17 @@ const S = {
   t0: null, elapsed: 0, tokens: 0, lastTok: 0,
   attempt: 1, maxAttempts: 4, phase: 'idle',
   logLines: 0, credits: 1000, burn: [], accepted: false,
-  portfolio: null, headlines: [], seenSearch: new Set(),
+  portfolio: null, headlines: [], seenSearch: new Set(), tally: {},
 };
+
+/* token counter is monotonic: whichever is larger, the authoritative
+   state.tokens_total or the running sum of per-tool token costs. */
+function setTokens(n){
+  if(!(n > S.tokens)) return;
+  S.tokens = n;
+  $('#sTok').textContent = fmtTok(n) + ' tok';
+  setCredits(CREDITS_MAX - n / 12);
+}
 const CREDITS_MAX = 1000;
 
 const fmtMS   = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`;
@@ -53,9 +62,9 @@ function rich(darkText){
   const c1 = darkText ? '#11111b' : '#cdd6f4';
   const c2 = darkText ? 'rgba(17,17,27,.68)' : 'rgba(205,214,244,.58)';
   return {
-    t:{fontSize:26,fontWeight:'bold',fontFamily:'JetBrains Mono,monospace',color:c1,lineHeight:30},
-    w:{fontSize:16,fontFamily:'JetBrains Mono,monospace',color:c2,lineHeight:20},
-    i:{fontSize:21,fontWeight:'bold',fontFamily:'JetBrains Mono,monospace',color:c1,lineHeight:26}
+    t:{fontSize:25,fontWeight:'bold',fontFamily:'JetBrains Mono,monospace',color:c1,lineHeight:28},
+    w:{fontSize:17,fontFamily:'JetBrains Mono,monospace',color:c2,lineHeight:22},
+    i:{fontSize:21,fontWeight:'bold',fontFamily:'JetBrains Mono,monospace',color:c1,lineHeight:24}
   };
 }
 function impactColor(v){
@@ -87,14 +96,16 @@ function paint(anim){
     series:[{
       type:'treemap', roam:false, nodeClick:false, breadcrumb:{show:false},
       left:0, top:0, right:0, bottom:0, width:'100%', height:'100%',
-      squareRatio: 0.9,
       itemStyle:{ borderColor:'#1e1e2e', borderWidth:3, gapWidth:3, borderRadius:8 },
       upperLabel:{show:false},
       emphasis:{disabled:true},
       label:{
-        show:true, position:'insideTopLeft', padding:[10,0,0,12],
-        formatter: p => `{t|${p.name}}\n{w|${p.data.weight.toFixed(1)}%}` +
-                        (p.data.imp == null ? '' : `\n{i|${fmtPct(p.data.imp)}}`)
+        show:true, position:'insideTopLeft', padding:[7,0,0,11], overflow:'truncate',
+        /* area already encodes weight — once we have an impact, that is the
+           second line instead, so narrow cells never truncate. */
+        formatter: p => `{t|${p.name}}\n` + (p.data.imp == null
+          ? `{w|${p.data.weight.toFixed(1)}%}`
+          : `{i|${fmtPct(p.data.imp)}}`)
       },
       data: tmData
     }]
@@ -219,7 +230,9 @@ function onTool(ev){
   }
 
   row.dataset.status = ev.status || 'ok';
-  row.className = 'row k-' + kind + (row.classList.contains('open') ? ' open' : '');
+  row.className = 'row k-' + kind +
+    (row.classList.contains('open') ? ' open' : '') +
+    (row.classList.contains('dim')  ? ' dim'  : '');
   if(ev.status === 'fail') row.classList.add('fail');
 
   row.querySelector('.ic').textContent     = ICON[kind];
@@ -230,8 +243,15 @@ function onTool(ev){
   row.querySelector('.ms').textContent     = ev.ms ? ev.ms + 'ms' : '';
   row.querySelector('.st').textContent     = MARK[ev.status] || '✓';
 
+  if(ev.tokens){
+    S.tally[ev.id || ('_' + rail.children.length)] = ev.tokens;
+    setTokens(Object.values(S.tally).reduce((a,b) => a + b, 0));
+  }
+
   if(ev.body){
-    row.classList.add('open'); openRow = row;
+    if(openRow && openRow !== row) collapseOpen();
+    row.classList.remove('dim'); row.classList.add('open');
+    openRow = row;
     startBody(row, kind, String(ev.body));
   }
   requestAnimationFrame(scrollRail);
@@ -294,8 +314,8 @@ function onLog(ev){
   const el = document.createElement('div');
   el.className = 'slipline ' + (BAD.test(txt) ? 's-bad' : (ev.stream === 'stderr' ? 's-err' : 's-out'));
   el.textContent = txt;
-  el.style.left   = (26 + Math.random()*130) + 'px';
-  el.style.bottom = (26 + Math.random()*260) + 'px';
+  el.style.left   = (20 + Math.random()*430) + 'px';
+  el.style.bottom = (18 + Math.random()*300) + 'px';
   el.style.animationDuration = (760 + Math.random()*180) + 'ms';
   el.addEventListener('animationend', () => {
     el.remove();
@@ -394,7 +414,7 @@ buildPips(4);
 const SEGS = 20;
 (() => { const b = $('#credBar'); for(let i=0;i<SEGS;i++){ const s=document.createElement('div'); s.className='cseg'; b.appendChild(s);} })();
 function setCredits(c){
-  S.credits = Math.max(0, Math.round(c));
+  S.credits = Math.max(0, Math.min(S.credits, Math.round(c))); // drains only
   $('#credNum').textContent = S.credits;
   const on = Math.ceil(SEGS * S.credits / CREDITS_MAX);
   const cls = S.credits < CREDITS_MAX*0.2 ? 'crit' : S.credits < CREDITS_MAX*0.45 ? 'warn' : '';
@@ -408,8 +428,20 @@ const BASE_NEWS = [
   'Analysts flag second-order exposure across hyperscaler capex',
   'Energy and managed care bid as rotation defensive',
 ];
+/* real headlines if the backend has them, otherwise the canned set */
+let NEWS = BASE_NEWS;
+fetch('/api/news')
+  .then(r => r.ok ? r.json() : Promise.reject(0))
+  .then(list => {
+    const arr = (Array.isArray(list) ? list : (list.events || []))
+      .map(n => typeof n === 'string' ? n : (n.headline || n.title || n.text || ''))
+      .filter(Boolean);
+    if(arr.length){ NEWS = arr.slice(0, 8); renderTicker(); }
+  })
+  .catch(() => {});
+
 function renderTicker(){
-  const items = S.headlines.concat(BASE_NEWS);
+  const items = S.headlines.concat(NEWS);
   const one = items.map((h,i) =>
     `<span class="${i < S.headlines.length ? 'hl' : ''}">${esc(h)}</span>`).join('<span class="dot">◆</span>');
   $('#tickInner').innerHTML = one + '<span class="dot">◆</span>' + one + '<span class="dot">◆</span>';
@@ -432,11 +464,7 @@ function onState(ev){
   }
   if(ev.attempt){ S.attempt = ev.attempt; $('#sAttempt').textContent = 'ATTEMPT ' + ev.attempt; markPips(); }
   if(typeof ev.elapsed_s === 'number'){ S.elapsed = ev.elapsed_s; S.t0 = Date.now() - ev.elapsed_s*1000; }
-  if(typeof ev.tokens_total === 'number'){
-    S.tokens = ev.tokens_total;
-    $('#sTok').textContent = fmtTok(S.tokens) + ' tok';
-    setCredits(CREDITS_MAX - S.tokens / 12);
-  }
+  if(typeof ev.tokens_total === 'number') setTokens(ev.tokens_total);
   if(ev.phase){
     setPhase(ev.phase);
     if(ev.phase === 'destroyed') tombstone(ev);
