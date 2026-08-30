@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PortfolioImpactAnalysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "news_id", "headline", "thesis", "methodology", "confidence",
+    "mechanism", "positions",
+    "portfolio_value_before_usd", "portfolio_impact_pct", "portfolio_impact_usd",
+    "citations", "budget"
+  ],
+  "properties": {
+    "news_id": { "type": "string", "minLength": 1 },
+    "headline": { "type": "string", "minLength": 5, "maxLength": 300 },
+    "published_at": { "type": "string" },
+    "thesis": { "type": "string", "minLength": 40, "maxLength": 600 },
+    "methodology": {
+      "type": "string",
+      "enum": ["beta_weighted_shock", "sector_exposure_map", "correlation_contagion"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+
+    "mechanism": {
+      "type": "array", "minItems": 1, "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "effect"],
+        "properties": {
+          "from": { "type": "string", "minLength": 2 },
+          "to": { "type": "string", "minLength": 1 },
+          "effect": { "type": "string", "minLength": 3 }
+        }
+      }
+    },
+
+    "positions": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ticker", "sector", "weight_pct", "value_before_usd",
+                     "impact_pct", "impact_usd", "rationale", "confidence"],
+        "properties": {
+          "ticker": { "type": "string", "pattern": "^[A-Z][A-Z.\\-]{0,5}$" },
+          "sector": { "type": "string", "minLength": 2 },
+          "weight_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+          "value_before_usd": { "type": "number", "minimum": 0 },
+          "impact_pct": { "type": "number", "minimum": -25, "maximum": 25 },
+          "impact_usd": { "type": "number" },
+          "rationale": { "type": "string", "minLength": 10, "maxLength": 400 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+
+    "portfolio_value_before_usd": { "type": "number", "minimum": 0 },
+    "portfolio_impact_pct": { "type": "number", "minimum": -25, "maximum": 25 },
+    "portfolio_impact_usd": { "type": "number" },
+
+    "citations": {
+      "type": "array", "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "url"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 10 },
+          "url": { "type": "string", "pattern": "^https?://" },
+          "source": { "type": "string" },
+          "published_at": { "type": "string" }
+        }
+      }
+    },
+
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codex_credits_used", "parallel_calls_used", "attempts"],
+      "properties": {
+        "codex_credits_used": { "type": "number", "minimum": 0 },
+        "parallel_calls_used": { "type": "integer", "minimum": 0 },
+        "attempts": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
