@@ -145,6 +145,12 @@ def host_auth_path() -> Path:
 INITIAL_MODEL = "gpt-5.6-terra"
 INITIAL_EFFORT = "medium"
 
+# Opt-in ONLY. Unset => the codex invocation is byte-identical to the green 290s run.
+# Set to "detailed" / "concise" / "auto" to ask Codex to emit reasoning summary items, which
+# the parser maps to THOUGHT rail rows. There is no CLI flag for this; -c overrides any
+# config.toml key. Kill switch: unset ARENA_REASONING_SUMMARY.
+REASONING_SUMMARY = os.environ.get("ARENA_REASONING_SUMMARY", "").strip()
+
 ROUTE_MECHANICAL = ("gpt-5.6-luna", "low", "MECHANICAL FIX")
 ROUTE_REREASON = ("gpt-5.6-terra", "high", "RE-REASONING")
 ROUTE_MAX = ("gpt-5.6-terra", "xhigh", "MAX REASONING")
@@ -1222,6 +1228,10 @@ Write /work/result.json and emit the same object as your final message.
             f"--output-schema {REMOTE_SCHEMA}",
             f"-o {REMOTE_RESULT}",
         ]
+        if REASONING_SUMMARY:
+            flags.append(
+                f"-c model_reasoning_summary={shlex.quote(REASONING_SUMMARY)}"
+            )
         if not resume:
             flags.append(f"-C {WORK_DIR}")  # accepted by `exec`, rejected by `exec resume`
 

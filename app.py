@@ -246,15 +246,28 @@ async def api_runs() -> list[dict[str, Any]]:
             except Exception:
                 continue
             res = r.get("result") or {}
+            hz = res.get("horizons") or {}
+
+            def base(h: str):
+                return ((hz.get(h) or {}).get("impact_pct") or {}).get("base")
+
+            ef = d / "events.jsonl"
             out.append({
                 "run_id": r.get("run_id", d.name),
                 "passed": r.get("passed"),
                 "attempts": r.get("attempts"),
-                "elapsed_s": r.get("elapsed_s"),
+                "elapsed_s": r.get("elapsed_s") or r.get("duration_s"),
                 "tokens_total": r.get("tokens_total"),
                 "headline": (r.get("news") or {}).get("headline") or res.get("headline"),
-                "events": (d / "events.jsonl").exists(),
+                "started_at": r.get("started_at") or (d.stat().st_mtime),
+                "event_count": r.get("event_count"),
+                # Runs without a stream can still open Act II, but cannot replay the arena.
+                "has_events": ef.exists() and ef.stat().st_size > 0,
+                "short_base": r.get("short_base", base("short_term")),
+                "medium_base": r.get("medium_base", base("medium_term")),
+                "long_base": r.get("long_base", base("long_term")),
             })
+    out.sort(key=lambda r: r.get("started_at") or 0, reverse=True)
     return out[:40]
 
 
@@ -394,9 +407,12 @@ async def _run(news: list[dict[str, Any]]) -> None:
         # Record every event so this run can be replayed later. Replay must be a
         # genuine past run, never a fixture.
         recorded: list[dict[str, Any]] = []
+        t0 = time.time()
 
         def rec(event: dict[str, Any]) -> None:
-            recorded.append(event)
+            # Stamp a copy with seconds-since-start so replay can reproduce the real
+            # pacing. Copy, never mutate: the live UI must see the event untouched.
+            recorded.append({**event, "t": round(time.time() - t0, 3)})
             emit(event)
 
         rec({"type": "state", "phase": "spawning", "attempt": 1, "run_id": run_id,
@@ -418,10 +434,60 @@ async def _run(news: list[dict[str, Any]]) -> None:
                 with (d / "events.jsonl").open("w", encoding="utf-8") as fh:
                     for e in recorded:
                         fh.write(json.dumps(e, default=str) + "\n")
-                if not (d / "run.json").exists():
-                    (d / "run.json").write_text(json.dumps(
-                        {"run_id": run_id, "news": news[0], "news_all": news},
-                        indent=2, default=str), encoding="utf-8")
+
+                # Summary so the replay picker can render a row without parsing
+                # the whole stream.
+                res = next((e.get("data") for e in reversed(recorded)
+                            if e.get("type") == "result"), None) or {}
+                verdicts = [e for e in recorded if e.get("type") == "verdict"]
+                hz = res.get("horizons") or {}
+
+                def base(h: str):
+                    return ((hz.get(h) or {}).get("impact_pct") or {}).get("base")
+
+                meta = {
+                    "run_id": run_id,
+                    "news": news[0],
+                    "news_all": news,
+                    "started_at": t0,
+                    "duration_s": round(time.time() - t0, 1),
+                    "event_count": len(recorded),
+                    "attempts": (verdicts[-1].get("attempt") if verdicts else None),
+                    "passed": (verdicts[-1].get("passed") if verdicts else None),
+                    "headline": news[0].get("headline"),
+                    "short_base": base("short_term"),
+                    "medium_base": base("medium_term"),
+                    "long_base": base("long_term"),
+                    "result": res or None,
+                }
+                # The orchestrator writes its own richer run.json to a SIBLING dir
+                # (runs/<run_id>-<uuid>/). One logical run therefore lands in two
+                # directories: ours has the event stream, theirs has the verdict and
+                # result. Merge theirs in so the replay picker sees one complete run.
+                sibling: dict[str, Any] = {}
+                try:
+                    for cand in RUNS.glob(f"{run_id}-*"):
+                        f = cand / "run.json"
+                        if f.exists():
+                            sibling = json.loads(f.read_text(encoding="utf-8"))
+                            break
+                except Exception:
+                    sibling = {}
+
+                existing = {}
+                rj = d / "run.json"
+                if rj.exists():
+                    try:
+                        existing = json.loads(rj.read_text(encoding="utf-8"))
+                    except Exception:
+                        existing = {}
+
+                merged = {**meta}
+                for src in (sibling, existing):
+                    for k, v in src.items():
+                        if v not in (None, [], {}) and merged.get(k) in (None, [], {}):
+                            merged[k] = v
+                rj.write_text(json.dumps(merged, indent=2, default=str), encoding="utf-8")
             except Exception:
                 pass
 
