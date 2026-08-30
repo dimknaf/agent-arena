@@ -129,29 +129,62 @@ def _hints_for(text: str, tickers: list[str]) -> list[str]:
     return sorted(hits)
 
 
+_POS = ("beat", "beats", "surge", "surges", "record", "upgrade", "rally", "jumps",
+        "soars", "tops", "wins", "raises guidance", "strong demand", "growth",
+        "outperform", "blowout", "expands", "approval")
+_NEG = ("miss", "misses", "cut", "cuts", "slump", "plunge", "plunges", "falls",
+        "downgrade", "probe", "lawsuit", "fine", "ban", "restriction", "halt",
+        "outage", "warning", "warns", "weak", "slowdown", "recall", "tariff",
+        "disruption", "shortage", "layoff", "investigation")
+
+
+def _sentiment_of(text: str) -> str:
+    low = text.lower()
+    p = sum(w in low for w in _POS)
+    n = sum(w in low for w in _NEG)
+    if n > p:
+        return "negative"
+    if p > n:
+        return "positive"
+    return "neutral"
+
+
 def _fetch_live_news(tickers: list[str], after: str) -> list[dict[str, Any]]:
     from kit import parallel_client
 
     # search() accepts a LIST of queries in one billed call. Specific queries beat one
     # broad one: a single "news for AAPL NVDA MSFT..." query just returns generic
     # market-roundup landing pages, which are useless as an analysis trigger.
+    # Spread across several holdings AND deliberately seek BOTH directions. A
+    # portfolio with nothing but good news makes a dull analysis, and the
+    # sentiment-vs-value divergence only shows up when something is going wrong.
     queries = [
-        "Nvidia AI chip supply constraint or datacenter demand news",
-        "TSMC semiconductor fab capacity or advanced packaging news",
-        "Apple iPhone supply chain or chip sourcing news",
-        "Microsoft AI capex or Azure datacenter spending news",
-        "OPEC oil output decision or crude price shock",
-        "Federal Reserve rate decision or inflation surprise markets",
+        # upside
+        "Nvidia earnings beat or AI datacenter demand upgrade",
+        "Microsoft Azure AI revenue growth or cloud contract win",
+        "Apple iPhone demand strength or services record",
+        "JPMorgan earnings beat or net interest income upgrade",
+        # downside
+        "Nvidia export restriction, China ban or analyst downgrade",
+        "Apple antitrust probe, regulatory fine or supplier problem",
+        "Broadcom guidance cut, semiconductor demand warning or downgrade",
+        "Exxon oil price slump, OPEC output decision or refinery outage",
+        "Caterpillar weak demand, tariff impact or industrial slowdown",
+        "Walmart consumer weakness or margin pressure warning",
+        # macro that hits several names at once
+        "Federal Reserve rate decision or hot inflation print",
+        "TSMC fab disruption or advanced packaging capacity constraint",
     ]
+    # max_results is a TOTAL cap across all queries, not per-query, and a narrow
+    # include_domains list starves it further — both were why only 2 events surfaced.
     hits = parallel_client.search(
         queries,
-        max_results=8,
+        max_results=30,
         mode="fast",
         objective=("A specific, recent, market-moving corporate or macro EVENT that would "
-                   "measurably move US large-cap equities. Prefer a concrete happening with "
-                   "a date over a market-roundup or a live-updates landing page."),
-        include_domains=["reuters.com", "apnews.com", "cnbc.com", "bloomberg.com",
-                         "ft.com", "tomshardware.com", "theverge.com"],
+                   "measurably move US large-cap equities — earnings, guidance, regulation, "
+                   "supply disruption, downgrades. Prefer a concrete dated happening over a "
+                   "market-roundup or a live-updates landing page. Both good and bad news."),
         after_date=after,
     )
     # Drop evergreen landing pages - they are not events and make a poor trigger.
@@ -172,11 +205,24 @@ def _fetch_live_news(tickers: list[str], after: str) -> list[dict[str, Any]]:
             "published_at": h.get("published_at") or "",
             "url": h.get("url") or "",
             "tickers_hint": _hints_for(f"{title} {h.get('snippet', '')[:600]}", tickers),
+            "sentiment": _sentiment_of(f"{title} {h.get('snippet', '')[:400]}"),
             "live": True,
         })
-    # An event nothing in the book is exposed to makes a dull analysis - rank those last.
+
+    # Rank by exposure to the book, but INTERLEAVE positive and negative so the
+    # strip always shows a mix - the analysis is far more interesting when the
+    # news cuts both ways.
     events.sort(key=lambda e: -len(e["tickers_hint"]))
-    return events
+    pos = [e for e in events if e["sentiment"] == "positive"]
+    neg = [e for e in events if e["sentiment"] == "negative"]
+    neu = [e for e in events if e["sentiment"] == "neutral"]
+    mixed: list[dict[str, Any]] = []
+    while neg or pos:
+        if neg:
+            mixed.append(neg.pop(0))
+        if pos:
+            mixed.append(pos.pop(0))
+    return (mixed + neu)[:8]
 
 
 @app.get("/api/news/live")
@@ -190,7 +236,7 @@ async def api_news_live(force: bool = False) -> dict[str, Any]:
     try:
         portfolio = load_portfolio()
         tickers = [p["ticker"] for p in portfolio.get("positions", [])]
-        after = time.strftime("%Y-%m-%d", time.gmtime(now - 5 * 86400))
+        after = time.strftime("%Y-%m-%d", time.gmtime(now - 14 * 86400))
         events = await asyncio.wait_for(
             asyncio.to_thread(_fetch_live_news, tickers, after), timeout=45.0
         )
@@ -246,6 +292,13 @@ async def api_runs() -> list[dict[str, Any]]:
             except Exception:
                 continue
             res = r.get("result") or {}
+            # `news` may be a dict OR a list — run_analysis now accepts several
+            # events as one combined scenario, so both shapes exist on disk.
+            n = r.get("news")
+            if isinstance(n, list):
+                n = n[0] if n else {}
+            if not isinstance(n, dict):
+                n = {}
             hz = res.get("horizons") or {}
 
             def base(h: str):
@@ -258,7 +311,7 @@ async def api_runs() -> list[dict[str, Any]]:
                 "attempts": r.get("attempts"),
                 "elapsed_s": r.get("elapsed_s") or r.get("duration_s"),
                 "tokens_total": r.get("tokens_total"),
-                "headline": (r.get("news") or {}).get("headline") or res.get("headline"),
+                "headline": n.get("headline") or res.get("headline") or r.get("headline"),
                 "started_at": r.get("started_at") or (d.stat().st_mtime),
                 "event_count": r.get("event_count"),
                 # Runs without a stream can still open Act II, but cannot replay the arena.

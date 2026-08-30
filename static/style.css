@@ -1069,3 +1069,159 @@ body{
 /* ── presentation mode: ?auto=1 ───────────────────────── */
 body.auto #hudNews,body.auto #runBtn{opacity:0;pointer-events:none}
 body.auto .raillegend{opacity:.6}
+
+/* ══════════════════════════════════════════════════════════════
+   NAVIGATION · a persistent switcher above both acts.
+   In flow at the top of #stage (44px + 14px gap = 58px), so ACT II
+   starts at y=58 and nothing ever hides it.
+   ══════════════════════════════════════════════════════════════ */
+#navbar{
+  position:relative;z-index:96;flex:none;height:44px;
+  display:flex;align-items:center;gap:14px;padding:0 16px;
+  border:1px solid rgba(205,214,244,.12);border-radius:12px;
+  background:linear-gradient(90deg, rgba(203,166,247,.10), rgba(49,50,68,.46) 45%, rgba(17,17,27,.62));
+}
+.nvBrand{
+  font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:.30em;
+  color:var(--mauve);flex:none;
+}
+.nvTabs{display:flex;gap:6px;flex:none}
+.nvTab{
+  position:relative;display:flex;align-items:center;gap:9px;
+  padding:6px 20px;border-radius:9px;cursor:pointer;
+  background:transparent;border:1px solid transparent;
+  font-family:var(--sans);font-size:19px;font-weight:800;letter-spacing:.16em;
+  color:var(--overlay);
+  transition:opacity .18s ease, transform .18s ease;
+}
+.nvTab i{
+  font-style:normal;font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:0;padding:1px 5px;border-radius:5px;
+  background:rgba(205,214,244,.10);color:var(--overlay);
+}
+.nvTab:hover:not(:disabled){color:var(--text);background:rgba(205,214,244,.07)}
+.nvTab.on{
+  color:var(--mauve);background:rgba(203,166,247,.18);border-color:rgba(203,166,247,.55);
+}
+.nvTab.on i{background:rgba(203,166,247,.25);color:var(--mauve)}
+.nvTab:disabled{opacity:.32;cursor:default}
+.nvGrow{flex:1}
+.nvNote{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;color:var(--surface2);flex:none}
+.nvInfo{display:flex;align-items:center;flex:none}
+.nvExp{
+  flex:none;padding:6px 14px;border-radius:9px;cursor:pointer;
+  background:rgba(137,220,235,.12);border:1px solid rgba(137,220,235,.42);
+  color:var(--cyan);font-family:var(--mono);font-size:15px;letter-spacing:.06em;
+}
+.nvExp b{font-weight:700;letter-spacing:.14em}
+.nvExp:hover:not(:disabled){background:rgba(137,220,235,.22)}
+.nvExp:disabled{opacity:.3;cursor:default}
+body.auto #navbar{opacity:.5}
+
+/* ACT II now begins below the switcher; the padding/gap trim gives most
+   of that height straight back so the card grid barely moves. */
+#act2{top:58px;padding:10px 24px 16px;gap:11px}
+
+/* ══════════════════════════════════════════════════════════════
+   THE ACTION DRAWER · click any rail card
+   ══════════════════════════════════════════════════════════════ */
+.row.clickable{cursor:pointer}
+.row.clickable:hover{background:rgba(205,214,244,.06)}
+.row.picked{box-shadow:inset 0 0 0 1px rgba(203,166,247,.55)}
+
+.drw{
+  position:absolute;top:58px;right:0;bottom:0;width:880px;z-index:120;
+  display:flex;flex-direction:column;gap:10px;
+  padding:22px 26px 24px;
+  border-left:2px solid rgba(203,166,247,.42);
+  border-top-left-radius:18px;
+  background:linear-gradient(180deg,#232338 0%,#13131f 100%);
+  box-shadow:-40px 0 120px rgba(0,0,0,.72);
+  transform:translate3d(100%,0,0);opacity:0;pointer-events:none;
+  transition:transform .3s cubic-bezier(.2,.9,.3,1), opacity .2s ease;
+  will-change:transform,opacity;
+}
+.drw.on{transform:translate3d(0,0,0);opacity:1;pointer-events:auto}
+.drwTop{display:flex;align-items:baseline;gap:14px;flex:none}
+.drwIc{font-size:30px;line-height:1;color:var(--mauve);flex:none}
+.drwK{
+  font-family:var(--mono);font-size:16px;font-weight:700;letter-spacing:.22em;
+  color:var(--mauve);flex:none;
+}
+.drwL{
+  flex:1;min-width:0;font-size:25px;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.drw.k-RUN .drwIc,.drw.k-RUN .drwK{color:var(--amber)}
+.drw.k-READ .drwIc,.drw.k-READ .drwK,.drw.k-INSPECT .drwIc,.drw.k-INSPECT .drwK{color:var(--cyan)}
+.drw.k-WRITE .drwIc,.drw.k-WRITE .drwK{color:var(--green)}
+.drw.k-EMIT .drwIc,.drw.k-EMIT .drwK{color:var(--blue)}
+.drw.fail{border-left-color:var(--red)}
+.drwX{
+  flex:none;padding:5px 12px;border-radius:8px;cursor:pointer;
+  background:rgba(205,214,244,.08);border:1px solid rgba(205,214,244,.18);
+  color:var(--overlay);font-family:var(--mono);font-size:13px;letter-spacing:.12em;
+}
+.drwX:hover{color:var(--text);background:rgba(205,214,244,.16)}
+.drwNarr{
+  flex:none;font-size:18px;font-style:italic;color:var(--overlay);
+  display:flex;gap:8px;line-height:1.35;
+}
+.drwNarr[hidden]{display:none!important}
+.drwNarr b{color:var(--surface2);font-style:normal}
+.drwMeta{flex:none;display:flex;flex-wrap:wrap;gap:8px}
+.dmc{
+  display:flex;flex-direction:column;gap:2px;min-width:104px;
+  padding:6px 12px;border-radius:9px;
+  background:rgba(49,50,68,.5);border:1px solid rgba(205,214,244,.10);
+}
+.dmc b{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--overlay);font-weight:400}
+.dmc i{font-style:normal;font-family:var(--mono);font-size:17px;font-weight:700;color:var(--text)}
+.dmc i.good{color:var(--green)} .dmc i.bad{color:var(--red)}
+.drwScroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:6px}
+.drwScroll::-webkit-scrollbar{width:8px}
+.drwScroll::-webkit-scrollbar-thumb{background:var(--surface2);border-radius:6px}
+.drwSec{
+  font-family:var(--mono);font-size:12px;letter-spacing:.2em;color:var(--overlay);
+  margin:14px 0 6px;
+}
+.drwSec[hidden]{display:none!important}
+.drw pre{
+  font-family:var(--mono);font-size:16.5px;line-height:1.42;color:var(--subtext);
+  white-space:pre-wrap;word-break:break-word;
+  padding:12px 14px;border-radius:10px;
+  background:rgba(17,17,27,.72);border:1px solid rgba(205,214,244,.10);
+}
+.drw pre[hidden]{display:none!important}
+.drw .drwCmd{color:var(--amber);border-color:rgba(250,179,135,.28)}
+.drw .drwQuote{color:var(--text);font-family:var(--sans);font-size:19px;border-color:rgba(203,166,247,.28)}
+.drwNone{padding:22px;text-align:center;font-family:var(--mono);color:var(--surface2);font-size:17px}
+.drwNone[hidden]{display:none!important}
+
+/* ══════════════════════════════════════════════════════════════
+   INFO AFFORDANCES
+   ══════════════════════════════════════════════════════════════ */
+.iIco{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;flex:none;margin-left:8px;
+  border-radius:50%;cursor:help;user-select:none;
+  font-family:var(--sans);font-size:15px;line-height:1;
+  color:var(--overlay);background:rgba(205,214,244,.08);
+  transition:transform .15s ease,opacity .15s ease;
+}
+.iIco:hover,.iIco:focus{color:var(--cyan);background:rgba(137,220,235,.20);outline:none;transform:scale(1.12)}
+.iTip{
+  position:absolute;z-index:200;left:0;top:0;width:660px;
+  padding:16px 20px;border-radius:14px;
+  border:1px solid rgba(137,220,235,.40);
+  background:linear-gradient(180deg,#232338 0%,#15151f 100%);
+  box-shadow:0 26px 80px rgba(0,0,0,.75);
+  font-family:var(--sans);font-size:17.5px;line-height:1.44;color:var(--subtext);
+  opacity:0;pointer-events:none;
+  transform:translate3d(0,-6px,0);
+  transition:opacity .16s ease, transform .16s ease;
+}
+.iTip.on{opacity:1;transform:translate3d(0,0,0)}
+.iTip b{color:var(--text)}
+.iTip u{text-decoration:none;font-family:var(--mono);font-weight:700;color:var(--cyan)}
+.iTip i{color:var(--overlay)}

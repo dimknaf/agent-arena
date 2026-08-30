@@ -541,9 +541,15 @@ function onTool(ev){
        <div class="rowbody"><pre></pre></div>`;
     rail.appendChild(row);
     if(ev.id) rowsById.set(ev.id, row);
+    row.classList.add('clickable');
+    row.addEventListener('click', () => openRowDetail(row));
     trimRail();
     showLegend();
   }
+  /* keep the FULL event on the node — the start event carries the command,
+     the completion event carries exit/ms/tokens. The drawer wants both. */
+  row._ev = Object.assign({}, row._ev || {}, ev);
+  row._D  = D;
 
   row.dataset.status = ev.status || 'ok';
   row.className = 'row k-' + kind +
@@ -712,6 +718,7 @@ initChecks();
 
 function onVerdict(v){
   const checks = v.checks || [];
+  S.lastVerdict = v;
   checks.forEach((c, i) => setTimeout(() => {
     let el = checkEls.get(c.id);
     if(!el){
@@ -858,6 +865,8 @@ function onResult(ev){
   /* ACT II — after the stamp, the confetti and the treemap recolour have all
      landed (repaintTreemap needs ~2.0s: 115ms stagger + tail). */
   S.lastResult = d;
+  S.runId = ev.run_id || d.run_id || RP.id || S.runId || '';
+  if(typeof navReady === 'function') navReady();
   clearTimeout(S.actTimer);
   S.actTimer = setTimeout(() => openAct2(d), 2600 / SPEED);
 }
@@ -1320,7 +1329,11 @@ addEventListener('keydown', e => {
   if(k === 'l' || k === 'L'){ e.preventDefault(); rpPanel.hidden ? openPicker() : closePicker(); return; }
   if(!rpPanel.hidden && k === 'Escape'){ e.preventDefault(); closePicker(); return; }
   if(k === ' ' || k === 'Spacebar'){ e.preventDefault(); closePicker(); closeAct2(); triggerRun(); return; }
+  /* the drawer owns ESC while it is up */
+  if(k === 'Escape' && drawerOpen()){ e.preventDefault(); closeRowDetail(); return; }
+  if(k === 's' || k === 'S'){ e.preventDefault(); goView('analysis'); return; }
   if(!A2.open){
+    if(k === 'a' || k === 'A' || k === 'Escape'){ e.preventDefault(); goView('arena'); return; }
     if(k === 'v' || k === 'V'){ e.preventDefault(); S.lastResult ? openAct2(S.lastResult) : jumpToAct2('last'); }
     return;
   }
@@ -1337,7 +1350,13 @@ addEventListener('keydown', e => {
 const A2 = { open:false, cards:[], order:[], sel:-1, timers:[], fall:null,
              cites:[], byTicker:{}, data:null, hz:'long_term', dom:1, casc:null, focus:0 };
 
-const after = (ms, fn) => A2.timers.push(setTimeout(fn, ms / SPEED));
+/* A2.instant collapses every beat to "now" — used when RE-ENTERING an
+   analysis that was already built, so the switcher feels like a tab and
+   not like a replay of the reveal. The first open is always cinematic. */
+const after = (ms, fn) => {
+  if(A2.instant){ try{ fn(); }catch(e){ console.error('beat', e); } return; }
+  A2.timers.push(setTimeout(fn, ms / SPEED));
+};
 const clearBeats = () => { A2.timers.forEach(clearTimeout); A2.timers = []; };
 const clip = (s, n) => String(s||'').length > n ? String(s).slice(0, n - 1) + '…' : String(s||'');
 const dots = c => { const f = Math.round(Math.max(0, Math.min(1, c || 0)) * 5);
@@ -1608,7 +1627,9 @@ function repaintTreemapAt(d, h){
 /* ══ open / close ═══════════════════════════════════════════════ */
 function openAct2(d){
   if(!d || !Array.isArray(d.positions) || !d.positions.length || A2.open) return;
+  S.lastResult = d;
   A2.open = true; A2.data = d; A2.sel = -1;
+  if(typeof navReady === 'function'){ navReady(); setNav('analysis'); }
   clearBeats();
   A2.dom = fanDomain(d.positions);
   const hzs = liveHorizons(d);
@@ -1641,6 +1662,7 @@ function openAct2(d){
 function closeAct2(instant){
   if(!A2.open) return;
   A2.open = false; clearBeats(); closeDetail();
+  if(typeof setNav === 'function') setNav('arena');
   const a = $('#act2');
   if(instant){ a.hidden = true; a.classList.remove('closing'); }
   else { a.classList.add('closing');
@@ -1865,5 +1887,351 @@ function openEvidence(d){
 
 /* charts inside Act II must resize with the stage too */
 addEventListener('resize', () => { if(A2.fall) A2.fall.resize(); });
+
+/* ══════════════════════════════════════════════════════════════════════
+   PART 3 · NAVIGATION — one persistent switcher over both acts.
+   Nothing is torn down when you switch: the arena keeps streaming behind
+   Act II, and Act II keeps its built DOM behind the arena.
+   ══════════════════════════════════════════════════════════════════════ */
+const navBar = el('div', '', `
+  <span class="nvBrand">AGENT&nbsp;ARENA</span>
+  <span class="nvTabs">
+    <button class="nvTab on" data-v="arena">ARENA<i>A</i></button>
+    <button class="nvTab" data-v="analysis" disabled>ANALYSIS<i>S</i></button>
+    <button class="nvTab" data-v="runs">RUNS<i>L</i></button>
+  </span>
+  <span class="nvInfo"></span>
+  <span class="nvGrow"></span>
+  <span class="nvNote">ESC returns to the arena</span>
+  <button class="nvExp" id="nvExport" disabled>⤓ <b>HTML</b></button>`);
+navBar.id = 'navbar';
+stage.insertBefore(navBar, stage.firstChild);
+
+let navView = 'arena';
+function setNav(v){
+  if(v !== 'runs') navView = v;
+  navBar.querySelectorAll('.nvTab').forEach(b => b.classList.toggle('on',
+    b.dataset.v === (rpPanel && !rpPanel.hidden ? 'runs' : navView)));
+}
+function navReady(){
+  const has = !!(S.lastResult && (S.lastResult.positions || []).length);
+  navBar.querySelector('[data-v="analysis"]').disabled = !has;
+  $('#nvExport').disabled = !has;
+}
+function goView(v){
+  if(v === 'runs'){ rpPanel.hidden ? openPicker() : closePicker(); setNav('runs'); return; }
+  closePicker();
+  if(v === 'analysis'){
+    if(!(S.lastResult && (S.lastResult.positions || []).length)){
+      toast('no analysis yet — run one, or pick a past run from RUNS'); return;
+    }
+    if(A2.open){ setNav('analysis'); return; }
+    /* re-entry is instant: the reveal already happened once */
+    A2.instant = true;
+    try{ openAct2(S.lastResult); } finally { A2.instant = false; }
+    setNav('analysis');
+    if(A2.fall) A2.fall.resize();
+    return;
+  }
+  closeAct2();          // → arena; closeAct2 sets the nav back itself
+  setNav('arena');
+}
+navBar.querySelectorAll('.nvTab').forEach(b => b.onclick = () => goView(b.dataset.v));
+
+/* the picker is an overlay, so it lights the RUNS tab while it is up */
+const _openPicker = openPicker, _closePicker = closePicker;
+openPicker  = function(){ _openPicker();  setNav('runs'); };
+closePicker = function(){ _closePicker(); setNav(navView); };
+
+/* ══════════════════════════════════════════════════════════════════════
+   PART 4 · THE ACTION DRAWER — click any rail card for the whole truth:
+   the derived label, the shell command verbatim, the full body, exit,
+   duration, tokens. Works identically live and in replay.
+   ══════════════════════════════════════════════════════════════════════ */
+const drw = el('div', 'drw', `
+  <div class="drwTop">
+    <span class="drwIc"></span>
+    <span class="drwK"></span>
+    <span class="drwL"></span>
+    <button class="drwX">ESC ✕</button>
+  </div>
+  <div class="drwNarr" hidden><b>&rsaquo;</b><span></span></div>
+  <div class="drwMeta"></div>
+  <div class="drwScroll">
+    <div class="drwSec" data-s="cmd" hidden>RAW SHELL COMMAND · VERBATIM</div>
+    <pre class="drwCmd" hidden></pre>
+    <div class="drwSec" data-s="q" hidden>THE AGENT&rsquo;S OWN WORDS</div>
+    <pre class="drwQuote" hidden></pre>
+    <div class="drwSec" data-s="b" hidden>OUTPUT · stdout / stderr as delivered</div>
+    <pre class="drwBody" hidden></pre>
+    <div class="drwNone" hidden>this action carried no body — the orchestrator recorded only its head</div>
+  </div>`);
+drw.id = 'drw';
+stage.appendChild(drw);
+function drawerOpen(){ return drw.classList.contains('on'); }
+function closeRowDetail(){ drw.classList.remove('on'); $$('.row.picked').forEach(r => r.classList.remove('picked')); }
+drw.querySelector('.drwX').onclick = closeRowDetail;
+
+function exitOf(ev){
+  if(typeof ev.exit_code === 'number') return String(ev.exit_code);
+  const m = String(ev.detail || '').match(/exit\s+(-?\d+)/i);
+  if(m) return m[1];
+  return ev.status === 'fail' ? 'non-zero' : ev.status === 'running' ? '—' : '0';
+}
+function openRowDetail(row){
+  const ev = row._ev || {}, D = row._D || derive(ev);
+  $$('.row.picked').forEach(r => r.classList.remove('picked'));
+  row.classList.add('picked');
+  drw.querySelector('.drwIc').textContent = ICON[D.kind] || '·';
+  drw.querySelector('.drwK').textContent  = VERB[D.kind] || D.kind;
+  drw.querySelector('.drwL').textContent  = D.label || D.detail || (ev.kind || '');
+  drw.className = 'drw on k-' + D.kind + (ev.status === 'fail' ? ' fail' : '');
+
+  const nr = drw.querySelector('.drwNarr');
+  nr.hidden = !D.narr; if(D.narr) nr.querySelector('span').textContent = D.narr;
+
+  const body = String(ev.body == null ? (D.body || '') : ev.body);
+  const isRun = ev.kind === 'RUN';
+  const cmd = isRun ? shellOf(body || ev.label || '') : '';
+  const lines = body ? body.split('\n').length : 0;
+  drw.querySelector('.drwMeta').innerHTML = [
+    ['EXIT',    esc(exitOf(ev)), ev.status === 'fail' ? 'bad' : 'good'],
+    ['DURATION', ev.ms ? ev.ms + ' ms' : '—', ''],
+    ['TOKENS',   ev.tokens ? fmtTok(ev.tokens) : '—', ''],
+    ['STATUS',   esc(ev.status || 'ok'), ''],
+    ['BODY',     lines ? lines + ' line' + (lines === 1 ? '' : 's') + ' · ' + body.length + ' chars' : 'none', ''],
+    ['EVENT ID', esc(ev.id || '—'), ''],
+  ].map(([k, v, c]) => `<span class="dmc"><b>${k}</b><i class="${c}">${v}</i></span>`).join('');
+
+  const put = (sel, sec, txt) => {
+    const p = drw.querySelector(sel), h = drw.querySelector(`.drwSec[data-s="${sec}"]`);
+    p.hidden = h.hidden = !txt; if(txt) p.textContent = txt;
+  };
+  put('.drwCmd',   'cmd', cmd);
+  put('.drwQuote', 'q',   D.quote ? mend(D.quote) : '');
+  put('.drwBody',  'b',   isRun ? '' : body);
+  drw.querySelector('.drwNone').hidden = !!(cmd || body || D.quote);
+  drw.querySelector('.drwScroll').scrollTop = 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PART 5 · INFO — the five things a judge cannot guess from the screen.
+   ══════════════════════════════════════════════════════════════════════ */
+const INFO = {
+  checks:
+    '<b>Eight deterministic gates, no model in the loop.</b> ' +
+    '<u>V1</u> the payload validates against impact.schema.json. ' +
+    '<u>V2</u> every ticker it names is actually in the book. ' +
+    '<u>V3</u> nine reconciliation gates — each position’s horizons, bands and weights add up to the number it declared. ' +
+    '<u>V4</u> impact_usd equals impact_pct × position value, to the cent. ' +
+    '<u>V5a</u> every ratio, share and multiple sits inside a sane range. ' +
+    '<u>V5b</u> band ordering: low ≤ base ≤ high, everywhere. ' +
+    '<u>V6</u> the verifier’s own hash is unchanged, so the agent cannot have edited its judge. ' +
+    '<u>V7</u> the value chain closes: revenue → earnings → value → % of market cap.',
+  horizons:
+    '<b>Three different questions, three different methods.</b> ' +
+    '<u>SHORT</u> (0–1 month) is sentiment and positioning — what the market does on the news. ' +
+    '<u>MEDIUM</u> (1–6 months) is partly fundamental, partly flow, as the facts start to land. ' +
+    '<u>LONG</u> (6–24 months) is pure permanent-earnings value: what the event is actually worth. ' +
+    'A gap between SHORT and LONG is signal, not noise — it is the market over- or under-reacting.',
+  band:
+    '<b>low / base / high is a downside / central / upside scenario band</b>, not a confidence interval. ' +
+    'The book-level band is summed straight across positions, which deliberately assumes the bad cases happen <i>together</i> — ' +
+    'so the low end is a genuinely conservative floor, not an average.',
+  cascade:
+    '<b>Every percent on this screen is built, not asserted.</b> ' +
+    'revenue line × affected share × months ÷ 12 × permanent share × operating margin × earnings multiple ' +
+    '÷ market capitalisation = the % equity impact. ' +
+    'Each step is separately challengeable — click one to see why it is there.',
+  replay:
+    '<b>REPLAY is a genuine past run played back, not a simulation.</b> ' +
+    'Every recorded event is re-emitted through exactly the same pipeline, in order. ' +
+    'Only dead air is compressed at 2x/4x, and every second removed is announced on the rail as “⋯ thinking 47s”. ' +
+    'Nothing is invented and nothing is skipped.',
+};
+const tipEl = el('div', 'iTip'); tipEl.id = 'itip'; stage.appendChild(tipEl);
+function tipHide(){ tipEl.classList.remove('on'); }
+function tipShow(anchor, html){
+  tipEl.innerHTML = html;
+  tipEl.classList.add('on');
+  const sr = stage.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+  const sc = (sr.width / 1920) || 1;
+  const cx = (ar.left + ar.width / 2 - sr.left) / sc;
+  const by = (ar.bottom - sr.top) / sc;
+  const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  tipEl.style.left = Math.max(14, Math.min(1920 - w - 14, cx - w / 2)) + 'px';
+  tipEl.style.top  = (by + h + 22 > 1080 ? (ar.top - sr.top) / sc - h - 10 : by + 10) + 'px';
+}
+function infoIcon(key){
+  const b = el('span', 'iIco', 'ⓘ');
+  b.tabIndex = 0;
+  const show = e => { if(e) e.stopPropagation(); tipShow(b, INFO[key] || ''); };
+  b.addEventListener('mouseenter', show);
+  b.addEventListener('mouseleave', tipHide);
+  b.addEventListener('focus', show);
+  b.addEventListener('blur', tipHide);
+  b.addEventListener('click', e => { e.stopPropagation(); e.preventDefault();
+    tipEl.classList.contains('on') ? tipHide() : show(); });
+  return b;
+}
+(function mountInfo(){
+  const put = (sel, key) => { const h = $(sel); if(h) h.appendChild(infoIcon(key)); };
+  put('#pnlJudge .phead', 'checks');
+  put('#a2cascPanel .a2ph', 'cascade');
+  navBar.querySelector('.nvInfo').appendChild(infoIcon('replay'));
+  const sc = $('#a2scrub');
+  if(sc){
+    const labs = sc.querySelectorAll('.a2clab');
+    if(labs[0]) labs[0].parentNode.insertBefore(infoIcon('horizons'), labs[0].nextSibling);
+    if(labs[1]) labs[1].parentNode.insertBefore(infoIcon('band'), labs[1].nextSibling);
+  }
+})();
+addEventListener('scroll', tipHide, true);
+/* the icons stop propagation, so any other click dismisses the tip */
+document.addEventListener('click', tipHide);
+
+/* ══════════════════════════════════════════════════════════════════════
+   PART 6 · EXPORT — one file, no network. Everything on this screen, in
+   a page a judge can mail to somebody and open next year.
+   ══════════════════════════════════════════════════════════════════════ */
+function exportHTML(){
+  const d = S.lastResult;
+  if(!d || !(d.positions || []).length){ toast('nothing to export yet'); return; }
+  const rid = S.runId || RP.id || 'live';
+  const when = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  const E = esc;
+  const pc = v => (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+
+  const hzRows = HZ.map(h => {
+    const b = pBand(d, h), u = pBandUsd(d, h);
+    return `<tr><th>${HZLAB[h]}</th>
+      <td class="n lo">${pc(b.low)}</td><td class="n bs">${pc(b.base)}</td><td class="n hi">${pc(b.high)}</td>
+      <td class="n u">${E(fmtUSD(u.base))}</td></tr>`;
+  }).join('');
+
+  const posBlocks = A2.order.length ? A2.order : d.positions.slice();
+  const positions = posBlocks.map(p => {
+    const c = cascadeOf(p);
+    const chain = c ? `<table class="chain">${c.steps.map(s =>
+      `<tr><td class="op">${E(s.op)}</td><td class="lb">${E(s.lab)}</td>
+        <td class="n">${s.pct != null ? pc(s.pct) : E(fmtBig(s.val))}</td></tr>`).join('')}</table>`
+      : '<p class="muted">no fundamental chain supplied for this position</p>';
+    const hz = HZ.filter(h => hzOf(p, h)).map(h => {
+      const b = band(p, h), o = hzOf(p, h);
+      return `<tr><th>${HZLAB[h]}</th><td class="n lo">${pc(b.low)}</td><td class="n bs">${pc(b.base)}</td>
+        <td class="n hi">${pc(b.high)}</td><td class="m">${E((o && o.method) || '')}</td></tr>`;
+    }).join('');
+    const lt = band(p, 'long_term').base;
+    return `<section class="pos ${lt < 0 ? 'neg' : 'pos'}">
+      <h3>${E(p.ticker)} <span class="sec">${E(p.sector || '')}</span>
+        <span class="imp">${pc(lt)}</span>
+        <span class="w">weight ${Number(p.weight_pct || 0).toFixed(2)}%</span></h3>
+      ${hz ? `<table class="hz"><tr><th></th><th>LOW</th><th>BASE</th><th>HIGH</th><th>METHOD</th></tr>${hz}</table>` : ''}
+      <div class="two"><div>${chain}</div>
+      <div><p class="rat">${E(p.rationale || 'no rationale supplied')}</p></div></div>
+    </section>`;
+  }).join('');
+
+  const cites = (d.citations || []).map(c =>
+    `<li><span class="cl">${E(c.claim || '')}</span>
+       <span class="cu">${E(c.source || '')}${c.url ? ` · <a href="${E(c.url)}">${E(c.url)}</a>` : ''}${c.published_at ? ' · ' + E(c.published_at) : ''}</span></li>`
+  ).join('') || '<li class="muted">no citations supplied</li>';
+
+  const v = S.lastVerdict || {};
+  const checks = (v.checks || []).map(c =>
+    `<li class="${c.passed ? 'ok' : 'no'}"><b>${E(c.id)}</b> ${E(c.name || '')} <i>${c.passed ? 'PASS' : 'FAIL'}</i>${
+      c.message ? `<span class="msg">${E(c.message)}</span>` : ''}</li>`).join('')
+    || '<li class="muted">no verdict recorded in this session</li>';
+
+  const pb = pBand(d, 'long_term'), pu = pBandUsd(d, 'long_term');
+  const css = `
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#14141f;color:#cdd6f4;font:16px/1.5 "Inter",system-ui,Segoe UI,Roboto,sans-serif;padding:40px 46px 90px;max-width:1180px;margin:0 auto}
+h1{font-size:34px;line-height:1.22;margin:10px 0 14px;color:#fff}
+h2{font-size:15px;letter-spacing:.22em;color:#cba6f7;margin:38px 0 12px;border-bottom:1px solid rgba(205,214,244,.14);padding-bottom:7px}
+h3{font-size:22px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:9px}
+.kick{font:12px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.3em;color:#6c7086}
+.thesis{font-size:19px;color:#a6adc8;max-width:900px;margin-bottom:20px}
+.badges{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0 4px}
+.badge{font:12px/1 "JetBrains Mono",monospace;letter-spacing:.14em;padding:6px 11px;border-radius:999px;border:1px solid #89b4fa;color:#89b4fa}
+.big{font:700 62px/1 "JetBrains Mono",ui-monospace,monospace;margin:8px 0 2px}
+.big.neg{color:#f38ba8}.big.pos{color:#a6e3a1}
+.sub{font:15px/1.4 "JetBrains Mono",monospace;color:#6c7086}
+table{border-collapse:collapse;width:100%;font:15px/1.5 "JetBrains Mono",ui-monospace,monospace;margin:8px 0}
+th{text-align:left;color:#6c7086;font-weight:400;letter-spacing:.1em;font-size:12.5px;padding:5px 10px 5px 0}
+td{padding:5px 10px 5px 0;border-top:1px solid rgba(205,214,244,.08)}
+td.n{text-align:right;white-space:nowrap}
+.lo{color:#f9e2af}.bs{color:#fff;font-weight:700}.hi{color:#89dceb}.u{color:#a6adc8}
+.m{color:#6c7086;font-size:13px}
+.pos{border:1px solid rgba(205,214,244,.11);border-left:5px solid #45475a;border-radius:12px;padding:16px 18px;margin-bottom:14px;background:rgba(49,50,68,.28)}
+.pos.neg{border-left-color:#f38ba8}.pos.pos{border-left-color:#a6e3a1}
+.sec{font-size:12px;letter-spacing:.16em;color:#6c7086;text-transform:uppercase}
+.imp{font:700 24px "JetBrains Mono",monospace;margin-left:auto}
+.w{font:13px "JetBrains Mono",monospace;color:#6c7086}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+.chain td.op{color:#cba6f7;font-weight:700;white-space:nowrap}
+.chain td.lb{color:#a6adc8}
+.rat{font-size:16px;color:#cdd6f4}
+ul{list-style:none}
+li{padding:9px 0;border-top:1px solid rgba(205,214,244,.08)}
+.cl{display:block}.cu{display:block;font:13px "JetBrains Mono",monospace;color:#6c7086;margin-top:3px;word-break:break-all}
+a{color:#89dceb}
+li.ok b{color:#a6e3a1}li.no b{color:#f38ba8}
+li i{font-style:normal;font:12px "JetBrains Mono",monospace;letter-spacing:.14em;margin-left:8px;color:#6c7086}
+.msg{display:block;color:#f38ba8;font:13px "JetBrains Mono",monospace;margin-top:3px}
+.muted{color:#6c7086}
+footer{margin-top:44px;padding-top:14px;border-top:1px solid rgba(205,214,244,.14);font:12.5px "JetBrains Mono",monospace;color:#6c7086;letter-spacing:.08em}
+@media (max-width:760px){.two{grid-template-columns:1fr}}`;
+
+  const doc = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Arena · ${E(rid)}</title>
+<style>${css}</style></head><body>
+<div class="kick">AUTONOMOUS PORTFOLIO IMPACT · RUN ${E(rid)}</div>
+<h1>${E(d.headline || 'Portfolio impact analysis')}</h1>
+<p class="thesis">${E(d.thesis || '')}</p>
+<div class="badges">
+  <span class="badge">${E(String(d.methodology || 'fundamental value').replace(/_/g, ' '))}</span>
+  <span class="badge">EVIDENCE ×${(d.citations || []).length}</span>
+  <span class="badge">CONFIDENCE ${Number(d.confidence || 0).toFixed(2)}</span>
+  <span class="badge">${(d.positions || []).length} POSITIONS</span>
+</div>
+<div class="big ${pb.base < 0 ? 'neg' : 'pos'}">${pc(pb.base)}</div>
+<div class="sub">${E(fmtUSD(d.portfolio_value_before_usd || 0))} → ${E(fmtUSD((d.portfolio_value_before_usd || 0) + pu.base))} · long-term horizon · band ${pc(pb.low)} … ${pc(pb.high)}</div>
+
+<h2>METHODOLOGY</h2>
+<p class="thesis">Every percentage is built, never asserted: revenue line × affected share × months ÷ 12 × permanent share ×
+operating margin × earnings multiple ÷ market capitalisation = % equity impact. Three horizons answer three different
+questions — short term (0–1mo) is sentiment and positioning, medium term (1–6mo) is partly fundamental, long term
+(6–24mo) is pure permanent-earnings value. low / base / high is a downside / central / upside scenario band, summed
+across the book on the deliberately conservative assumption that the bad cases happen together.</p>
+
+<h2>PORTFOLIO · HORIZON × SCENARIO</h2>
+<table><tr><th></th><th>LOW</th><th>BASE</th><th>HIGH</th><th>BASE USD</th></tr>${hzRows}</table>
+
+<h2>POSITIONS · VALUE CHAIN AND RATIONALE</h2>
+${positions}
+
+<h2>EVIDENCE</h2><ul>${cites}</ul>
+
+<h2>VERIFIER · DETERMINISTIC GATES</h2>
+<p class="sub">${v.passed === true ? 'ACCEPTED' : v.passed === false ? 'REJECTED' : 'no verdict in session'}${
+  v.attempt ? ' · attempt ' + E(String(v.attempt)) : ''}</p>
+<ul>${checks}</ul>
+
+<footer>run ${E(rid)} · exported ${E(when)} · self-contained, no network calls · generated by Agent Arena</footer>
+</body></html>`;
+
+  const url = URL.createObjectURL(new Blob([doc], {type:'text/html;charset=utf-8'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = 'agent-arena-' + String(rid).replace(/[^\w.-]+/g, '-') + '.html';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast('exported agent-arena-' + rid + '.html');
+}
+$('#nvExport').onclick = exportHTML;
+navReady();
 
 })();
