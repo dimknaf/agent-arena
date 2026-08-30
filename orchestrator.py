@@ -815,8 +815,6 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
         cmd_id = getattr(resp, "cmd_id", None) or getattr(resp, "id", None)
         if not cmd_id:
             raise RuntimeError(f"Daytona did not return a command id: {resp!r}")
-        # Print the response shape once so we can confirm the attribute name at runtime.
-        print(f"[orchestrator] SessionExecuteResponse -> cmd_id={cmd_id} attrs={list(getattr(resp, 'model_fields', {}) or {})}")
 
         queue: asyncio.Queue = asyncio.Queue()
 
