@@ -879,3 +879,193 @@ body{
 .evRow .cl{font-size:19px;line-height:1.38;color:var(--text)}
 .evRow .cu{font-family:var(--mono);font-size:14px;color:var(--cyan);margin-top:5px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ══════════════════════════════════════════════════════════════════════
+   RAIL v2 — derived action kinds, card faces, the quiet, the NOW chip
+   and the replay picker.  Everything above (Act II) is untouched.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── derived kind colours ─────────────────────────────── */
+.k-READ    {border-left-color:var(--blue)}    .k-READ     .ic,.k-READ     .kind{color:var(--blue)}
+.k-SEARCH  {border-left-color:var(--cyan)}    .k-SEARCH   .ic,.k-SEARCH   .kind{color:var(--cyan)}
+.k-FETCH   {border-left-color:var(--green)}   .k-FETCH    .ic,.k-FETCH    .kind{color:var(--green)}
+.k-RESEARCH{border-left-color:var(--yellow)}  .k-RESEARCH .ic,.k-RESEARCH .kind{color:var(--yellow)}
+.k-COMPUTE {border-left-color:var(--amber)}   .k-COMPUTE  .ic,.k-COMPUTE  .kind{color:var(--amber)}
+.k-CHECK   {border-left-color:#94e2d5}        .k-CHECK    .ic,.k-CHECK    .kind{color:#94e2d5}
+.k-INSPECT {border-left-color:var(--overlay)} .k-INSPECT  .ic,.k-INSPECT  .kind{color:var(--subtext)}
+.k-WRITE   {border-left-color:var(--pink)}    .k-WRITE    .ic,.k-WRITE    .kind{color:var(--pink)}
+.k-EMIT    {border-left-color:#b4befe}        .k-EMIT     .ic,.k-EMIT     .kind{color:#b4befe}
+.k-RUN     {border-left-color:var(--surface2)}.k-RUN      .ic,.k-RUN      .kind{color:var(--overlay)}
+.k-THOUGHT {border-left-color:var(--mauve);background:rgba(203,166,247,.11)}
+
+/* the head can now carry a long derived label */
+.rowhead .label{max-width:520px;min-width:0}
+.rowhead .detail{max-width:340px;min-width:0}
+.row.mono .rowhead .label{font-size:18px;color:var(--subtext)}
+
+/* the running row breathes, so a 45-second wait does not read as a hang */
+.row[data-status="running"] .rowhead .ic{animation:breathe 1.9s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.42;transform:scale(.9)}50%{opacity:1;transform:scale(1.14)}}
+
+/* ── the card face ────────────────────────────────────── */
+.rowface{padding:0 15px 11px 51px;display:flex;flex-direction:column;gap:5px}
+.rowface[hidden]{display:none!important}
+.rowface .narr[hidden],.rowface .quote[hidden],.rowface .raw[hidden]{display:none!important}
+
+/* the AGENT's own words — quoted, never restyled into our voice */
+.rowface .quote{
+  font-family:var(--sans);font-size:20px;line-height:1.34;color:var(--text);
+  border-left:3px solid rgba(203,166,247,.5);padding-left:12px;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+}
+.rowface .quote::before{content:"\201C";color:var(--mauve);margin-right:2px}
+.rowface .quote::after {content:"\201D";color:var(--mauve);margin-left:2px}
+/* a reasoning card is headline-only by nature — it must read as finished,
+   not as a card whose body failed to load. Multiple title lines stack. */
+.k-THOUGHT .rowface{padding-bottom:15px}
+.k-THOUGHT .rowface .quote{
+  font-size:23px;line-height:1.4;color:#e6e0f5;white-space:pre-line;
+  -webkit-line-clamp:4;border-left-width:0;padding-left:0;
+}
+.k-THOUGHT .rowface .quote::before,.k-THOUGHT .rowface .quote::after{content:none}
+.k-THOUGHT .rowhead .detail{color:var(--mauve);opacity:.72;font-size:16px;letter-spacing:.08em}
+
+/* DERIVED narration — this dashboard's label for the action, marked as such */
+.rowface .narr{
+  display:flex;gap:9px;align-items:baseline;
+  font-family:var(--sans);font-style:italic;font-size:18px;line-height:1.3;
+  color:var(--overlay);
+}
+.rowface .narr b{color:var(--surface2);font-style:normal;font-size:20px;flex:none}
+
+/* the untouched truth: exactly what ran */
+.rowface .raw{
+  font-family:var(--mono);font-size:16.5px;color:var(--surface2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* honest marker for time a fast replay collapsed away */
+.gapchip{
+  align-self:center;margin:1px 0;
+  font-family:var(--mono);font-size:16px;letter-spacing:.14em;
+  color:var(--overlay);opacity:.85;
+  padding:3px 16px;border-radius:999px;
+  border:1px dashed rgba(205,214,244,.16);
+  animation:slidein .3s ease both;
+}
+
+/* ── the quiet ────────────────────────────────────────── */
+.s-idle{color:var(--surface2);text-shadow:none;font-size:22px;opacity:.9}
+
+.thinkbar{
+  position:absolute;left:18px;bottom:9px;z-index:9;
+  display:flex;align-items:center;gap:12px;pointer-events:none;
+  font-family:var(--mono);font-size:17px;letter-spacing:.08em;color:var(--overlay);
+  opacity:0;transition:opacity .35s ease;
+}
+.thinkbar.on{opacity:1}
+.tdots{display:inline-flex;gap:6px}
+.tdots i{
+  width:8px;height:8px;border-radius:50%;background:var(--mauve);display:block;
+  animation:tdot 1.25s ease-in-out infinite;
+}
+.tdots i:nth-child(2){animation-delay:.16s}
+.tdots i:nth-child(3){animation-delay:.32s}
+@keyframes tdot{0%,100%{opacity:.18;transform:scale(.7)}45%{opacity:1;transform:scale(1.25)}}
+
+.raillegend{
+  position:absolute;right:18px;bottom:10px;z-index:9;pointer-events:none;
+  font-family:var(--sans);font-style:italic;font-size:14.5px;color:var(--surface2);
+  opacity:0;transition:opacity .5s ease;
+}
+.raillegend.on{opacity:1}
+.raillegend b{font-style:normal}
+
+/* ── the NOW chip ─────────────────────────────────────── */
+#hudStats{grid-template-columns:430px 1fr 214px 340px 166px}
+.hudnow{flex-direction:column;align-items:flex-start;gap:1px}
+.hudnow .nowRow{display:flex;align-items:baseline;gap:11px;min-width:0;width:426px}
+.hudnow .nowGlyph{font-size:24px;line-height:1;flex:none}
+.hudnow .nowWord{font-family:var(--sans);font-size:29px;font-weight:800;letter-spacing:.13em;flex:none}
+.hudnow .nowNote{
+  font-family:var(--mono);font-size:14.5px;color:var(--overlay);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;
+}
+.hudnow.nowlive .nowGlyph,.hudnow.nowlive .nowWord{color:var(--green)}
+.hudnow.nowlive .nowGlyph{animation:nowpulse 1.15s ease-in-out infinite}
+.hudnow.nowext  .nowGlyph,.hudnow.nowext  .nowWord{color:var(--amber)}
+.hudnow.nowext  .nowGlyph{animation:nowpulse .8s ease-in-out infinite}
+.hudnow.nowrep  .nowGlyph,.hudnow.nowrep  .nowWord{color:var(--mauve)}
+.hudnow.nowrep  .nowGlyph{animation:nowpulse 1.6s ease-in-out infinite}
+.hudnow.nowidle .nowGlyph,.hudnow.nowidle .nowWord{color:var(--overlay)}
+@keyframes nowpulse{0%,100%{opacity:.35;transform:scale(.86)}50%{opacity:1;transform:scale(1.16)}}
+
+#runBtn.ext{
+  border-color:var(--amber);color:var(--amber);
+  background:linear-gradient(180deg, rgba(250,179,135,.20), rgba(250,179,135,.06));
+}
+#runBtn.rep{
+  border-color:var(--mauve);color:var(--mauve);
+  background:linear-gradient(180deg, rgba(203,166,247,.22), rgba(203,166,247,.06));
+}
+#runBtn.rep .rbIcon{animation:none}
+
+/* room for the think bar and the legend under the last row */
+#railWrap{padding-bottom:36px}
+
+/* ── the replay picker ────────────────────────────────── */
+.rpBtn{
+  flex:none;width:78px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:rgba(203,166,247,.12);border:1px solid rgba(203,166,247,.38);
+  border-radius:10px;color:var(--mauve);cursor:pointer;
+  font-family:var(--mono);font-size:21px;line-height:1;
+}
+.rpBtn span{font-size:11px;letter-spacing:.12em}
+
+.rpPanel{
+  position:absolute;left:50%;bottom:190px;z-index:88;
+  width:1420px;transform:translate3d(-50%,0,0);
+  padding:18px 22px 20px;border-radius:16px;
+  border:2px solid rgba(203,166,247,.42);
+  background:linear-gradient(180deg,#232338,#15151f);
+  box-shadow:0 40px 120px rgba(0,0,0,.75);
+  animation:rpin .22s ease both;
+}
+.rpPanel[hidden]{display:none!important}
+@keyframes rpin{from{opacity:0;transform:translate3d(-50%,16px,0)}to{opacity:1;transform:translate3d(-50%,0,0)}}
+.rpTop{
+  display:flex;align-items:center;gap:16px;padding-bottom:12px;margin-bottom:10px;
+  border-bottom:1px solid rgba(205,214,244,.12);
+}
+.rpTop b{font-family:var(--sans);font-size:21px;letter-spacing:.14em;color:var(--mauve);flex:none}
+.rpSp{display:flex;gap:6px;flex:none}
+.rpSp button{
+  padding:5px 14px;border-radius:8px;cursor:pointer;
+  font-family:var(--mono);font-size:16px;font-weight:700;
+  background:rgba(49,50,68,.6);border:1px solid rgba(205,214,244,.16);color:var(--subtext);
+}
+.rpSp button.on{background:rgba(203,166,247,.22);border-color:var(--mauve);color:var(--mauve)}
+.rpHint{flex:1;font-family:var(--sans);font-style:italic;font-size:15px;color:var(--overlay);min-width:0}
+.rpX{font-family:var(--mono);font-size:14px;letter-spacing:.14em;color:var(--surface2);cursor:pointer;flex:none}
+.rpEmpty{padding:24px;text-align:center;font-family:var(--mono);color:var(--surface2);font-size:18px}
+
+.rpRow{
+  width:100%;display:flex;align-items:center;gap:18px;
+  padding:9px 14px;margin-bottom:5px;border-radius:9px;cursor:pointer;text-align:left;
+  background:rgba(49,50,68,.42);border:1px solid transparent;border-left:4px solid var(--surface2);
+  color:var(--subtext);font-family:var(--mono);font-size:17px;
+}
+.rpRow:hover{background:rgba(203,166,247,.16);border-color:rgba(203,166,247,.4)}
+.rpRow .rpV{flex:none;width:52px;font-weight:700;letter-spacing:.08em}
+.rpRow .rpV.p{color:var(--green)} .rpRow .rpV.f{color:var(--red)}
+.rpRow .rpH{flex:1;min-width:0;color:var(--text);font-family:var(--sans);font-size:18px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpRow .rpM{flex:none;font-size:15.5px;color:var(--overlay)}
+.rpRow .rpZ{flex:none;width:190px;text-align:right;color:var(--cyan);font-size:16px}
+.rpRow.noev{border-left-color:var(--yellow)}
+.rpRow.noev .rpM{color:var(--yellow)}
+
+/* ── presentation mode: ?auto=1 ───────────────────────── */
+body.auto #hudNews,body.auto #runBtn{opacity:0;pointer-events:none}
+body.auto .raillegend{opacity:.6}

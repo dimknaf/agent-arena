@@ -19,7 +19,14 @@ const Q  = new URLSearchParams(location.search);
    is live is a genuine earlier run, never invented numbers. */
 const REPLAY = Q.get('replay');
 const ACT2Q  = Q.get('act2');
+const AUTO   = /^(1|true|yes)$/i.test(Q.get('auto') || '');
 const SPEED  = Math.max(0.15, parseFloat(Q.get('speed') || '1'));
+
+/* Replay pacing. `rate` is a PRESENTATION control, never a fidelity one:
+   every recorded event is played, in order, whatever the rate. 1x is the
+   true original timing; 2x and 4x collapse dead air only (see gapMs). */
+const RP = { rate: Math.max(1, parseFloat(Q.get('rate') || '') || 2),
+             on:false, headline:'', id:'', token:0, done:false, runs:[] };
 
 const MAX_ROWS = 40;
 const MAX_SLIP = 30;
@@ -40,6 +47,8 @@ const S = {
   attempt: 1, maxAttempts: 4, phase: 'idle',
   logLines: 0, credits: 1000, burn: [], accepted: false,
   portfolio: null, headlines: [], seenSearch: new Set(), tally: {},
+  seenProse: new Set(),
+  mine: false, external: false,          // who started the run that is streaming
 };
 
 /* token counter is monotonic: whichever is larger, the authoritative
@@ -173,6 +182,17 @@ function setPhase(p){
   const [txt, cls] = PHASE[p] || [String(p).toUpperCase(), 'run'];
   $('#sPhaseTxt').textContent = txt;
   $('#sPhase').className = 'sPhase ' + cls;
+  refreshNow();
+}
+
+/* one source of truth for the NOW chip — replay always wins, because a
+   replay must never be mistakable for a live run */
+function refreshNow(){
+  if(typeof setNow !== 'function') return;
+  if(RP.on)      return setNow('replay');
+  if(S.external) return setNow('external');
+  if(S.running || /^(spawning|running|verifying)$/.test(S.phase)) return setNow('live');
+  setNow('idle');
 }
 
 /* token burn sparkline */
@@ -203,11 +223,262 @@ setInterval(() => {
 
 /* ═══════════════════════════ THE RAIL ═══════════════════════════════ */
 const rail = $('#rail'), railWrap = $('#railWrap');
-const ICON = {THOUGHT:'◇', SEARCH:'⌕', WRITE:'◉', RUN:'▶', EMIT:'⬢', SYSTEM:'⚙'};
-const VERB = {THOUGHT:'THOUGHT', SEARCH:'SEARCH', WRITE:'WROTE', RUN:'RAN', EMIT:'EMIT', SYSTEM:'SYS'};
+
+/* Two families of kind live here:
+     · the six the ORCHESTRATOR sends (CONTRACTS §1)
+     · the finer kinds this dashboard DERIVES from the shell command it was
+       handed, because "RAN /bin/bash -lc …" eighteen times is a terminal,
+       not a story.
+   Deriving is a PRESENTATION choice only. The untouched command is always
+   on the card face and in the expander, so nothing below can hide what
+   actually ran. Anything the dashboard wrote itself is rendered in the
+   muted `›` narration style and never as the agent's own words. */
+const ICON = {THOUGHT:'◇', SEARCH:'⌕', WRITE:'◉', RUN:'▶', EMIT:'⬢', SYSTEM:'⚙',
+              READ:'▤', FETCH:'⇣', RESEARCH:'◎', COMPUTE:'Σ', CHECK:'◈', INSPECT:'◱'};
+const VERB = {THOUGHT:'THOUGHT', SEARCH:'SEARCH', WRITE:'WROTE', RUN:'SHELL', EMIT:'DRAFT', SYSTEM:'SYS',
+              READ:'READ', FETCH:'FETCH', RESEARCH:'RESEARCH', COMPUTE:'COMPUTE', CHECK:'CHECK', INSPECT:'INSPECT'};
 const MARK = {running:'◐', ok:'✓', fail:'✗'};
 const rowsById = new Map();
 let openRow = null, typer = null;
+
+const cut  = (s, n) => { s = String(s == null ? '' : s);
+                         return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+const uniq = a => a.filter((x, i) => a.indexOf(x) === i);
+const baseName  = p => String(p).split('/').filter(Boolean).pop() || String(p);
+const firstLine = t => (String(t || '').split('\n').find(l => l.trim().length > 1) || '').trim();
+/* U+FFFD is a transport artefact in the recorded stream, not the agent's text */
+const mend = t => String(t || '').replace(/�/g, '’');
+function tryJSON(t){
+  try{ const j = JSON.parse(String(t)); return (j && typeof j === 'object') ? j : null; }
+  catch(_){ return null; }
+}
+
+/* The orchestrator caps a row body at 4 000 chars, so a late draft payload
+   arrives as valid-looking JSON that stops mid-string. Pull the few fields
+   the card shows straight out of the text rather than dropping the row into
+   a wall of braces. Marked `_partial` so the card can say so. */
+function salvageJSON(t){
+  const s = String(t || '');
+  if(!/^\s*\{/.test(s)) return null;
+  const un = v => { try{ return JSON.parse('"' + v + '"'); }catch(_){ return v; } };
+  const one = re => { const m = s.match(re); return m ? un(m[1]) : null; };
+  const claims = [], re = /"claim"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  let m; while((m = re.exec(s))) claims.push(un(m[1]));
+  const head = one(/"headline"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const thes = one(/"thesis"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const conf = s.match(/"confidence"\s*:\s*(-?[\d.]+)/);
+  if(head == null && !claims.length) return null;
+  return { headline: head || '', thesis: thes || '',
+           confidence: conf ? +conf[1] : undefined,
+           positions: new Array((s.match(/"ticker"\s*:/g) || []).length),
+           citations: claims.map(c => ({claim:c})), _partial: true };
+}
+
+/* the literal command, unwrapped from `bash -lc` and flattened to one line
+   so a heredoc cannot blow the card open. Still the truth, just narrower. */
+function shellOf(raw){
+  let s = String(raw || '').trim().replace(/^\/bin\/bash\s+-lc\s+/, '');
+  if(s.length > 1 && ((s[0] === '"' && s.slice(-1) === '"') || (s[0] === "'" && s.slice(-1) === "'")))
+    s = s.slice(1, -1);
+  return '$ ' + s.replace(/\s+/g, ' ').trim();
+}
+
+const NICE = {
+  'SKILL.md'          : 'the portfolio-impact skill',
+  'impact.schema.json': 'the output contract',
+  'portfolio.json'    : 'the book · 10 holdings',
+  'news.json'         : 'the news event',
+  'budget.json'       : 'its budget',
+  'sec_client.py'     : 'sec_client toolkit',
+  'parallel_client.py': 'parallel_client toolkit',
+};
+const nice = f => NICE[f] || f;
+
+/* ── command → readable action ────────────────────────────────────────
+   Order matters: a line with both `rg` and `sed` is a search, and a line
+   that runs a script it wrote is a computation even though it also
+   validates. Returns null when nothing matches — then the row falls back
+   to the raw command in monospace, which is honest and rare. */
+function readCmd(raw){
+  const c = String(raw || '');
+  if(!c.trim()) return null;
+  const b  = c.replace(/^\/bin\/bash\s+-lc\s+/, '');
+  const py = /\bpython3?\b/.test(b);
+  const files = uniq((b.match(/\/[\w.\/-]*\.(?:md|json|jsonl|py|txt|ya?ml)/g) || []).map(baseName));
+
+  if(py && /\b(market_cap|shares_outstanding|annual_revenue|sec_client)\b/.test(b))
+    return {kind:'FETCH', label:'live market cap & revenue',
+            detail:'sec_client → data.sec.gov XBRL',
+            narr:'checking what each holding is actually worth right now'};
+
+  if(py && /\b(parallel_client|search)\b/.test(b)){
+    /* count only what is actually inside the queries list — a wrong count
+       would be a claim about the agent, so when in doubt claim nothing */
+    const blk = b.match(/queries\s*=\s*\[([\s\S]*?)\n\s*\]/);
+    const n = blk ? (blk[1].match(/^\s*['"]/gm) || []).length : 0;
+    return {kind:'RESEARCH', label:'web search' + (n > 1 ? ' · ' + n + ' queries' : ''),
+            detail:'parallel_client',
+            narr:'looking outside its own inputs for corroboration'};
+  }
+
+  const script = b.match(/python3?\s+(\/work\/[\w.\/-]+\.py)/);
+  if(script)
+    return {kind:'COMPUTE', label:baseName(script[1]),
+            detail:/jsonschema|validate/.test(b) ? 'then validates the output' : 'code it wrote itself',
+            narr:'running the model it just wrote — every holding, one number each'};
+
+  if(py && /jsonschema|\bvalidate\b|result\.json/.test(b))
+    return {kind:'CHECK',
+            label:/jsonschema/.test(b) ? 'result.json vs impact.schema.json' : 'result.json',
+            detail:/jsonschema/.test(b) ? 'jsonschema' : 'reads its own answer back',
+            narr:'checking its own answer before it hands it over'};
+
+  if(/(?:^|[^\w.\/-])(?:rg|grep)\b/.test(b)){
+    const m  = b.match(/\b(?:rg|grep)\b(?:\s+-{1,2}[\w-]+)*\s+(?:\\?["']([^"'\\\n]{2,70})|([^\s"'\\\n]{2,50}))/);
+    const pat = m && (m[1] || m[2]);
+    const wh = uniq((b.match(/\/(?:opt|work|verifier|etc)[\w.\/-]*/g) || []).map(baseName));
+    const where = wh.length ? wh.slice(0, 2).join(', ') + (wh.length > 2 ? ' +' + (wh.length - 2) : '') : 'the workspace';
+    return {kind:'SEARCH', label: pat ? cut(pat, 44) : 'across ' + where,
+            detail: pat ? 'in ' + where : '',
+            narr:'hunting for the exact definition instead of guessing it'};
+  }
+
+  if(/(?:^|[^\w.\/-])(?:sed|cat|head|tail|less|bat)\b/.test(b) && files.length){
+    const skill = files.some(f => /SKILL\.md$/i.test(f));
+    const kit   = files.some(f => /_client\.py$/.test(f));
+    return {kind:'READ', label: nice(files[0]),
+            detail: files.length > 1
+              ? nice(files[1]) + (files.length > 2 ? ' +' + (files.length - 2) + ' more' : '') : '',
+            narr: skill ? 'reading its brief and the contract it has to satisfy'
+                : kit   ? 'reading the toolkit source before it trusts it'
+                        : 'taking in ' + nice(files[0])};
+  }
+
+  if(/(?:^|[^\w.\/-])(?:ls|test\s+-[a-z]|which|stat|find|pwd)\b/.test(b))
+    return {kind:'INSPECT',
+            label:(b.match(/\/(?:opt|work|verifier|etc|root)[\w.\/-]*/) || [, ''])[0] || 'the workspace',
+            detail:'', narr:'looking around before it commits'};
+
+  return null;
+}
+
+/* derived narration for the orchestrator's own SYSTEM lines */
+const SYSNARR = [
+  [/snapshot unavailable/i,         'no prebuilt image — it builds the box from scratch instead'],
+  [/^sandbox [0-9a-f]{6}/i,         'a cloud machine now exists that did not exist a second ago'],
+  [/credentials transplanted/i,     'the sandbox is given its own Codex identity'],
+  [/installing/i,                   'the toolchain the agent will need goes in first'],
+  [/sandbox ready/i,                'the box is armed and the agent has somewhere to work'],
+  [/kit uploaded|skills uploaded/i, 'handing over the only tools it is allowed to use'],
+  [/toolkit verified/i,             'proving the tools import before trusting them'],
+  [/egress lock/i,                  'the platform refused the network lockdown — logged, not hidden'],
+  [/codex attempt/i,                'the task goes to Codex; nobody steers it from here'],
+  [/turn \d+ complete/i,            'the agent has stopped thinking'],
+];
+const sysNarr = l => (SYSNARR.find(p => p[0].test(String(l || ''))) || [, ''])[1];
+
+/* the agent's OWN sentences, lifted verbatim out of the draft result.json
+   it just emitted. Nothing here is written by the dashboard — if there is
+   no new sentence there is no THOUGHT card. */
+function pickProse(j){
+  const cands = [];
+  if(typeof j.thesis === 'string' && j.thesis.length > 24) cands.push(j.thesis);
+  (j.citations || []).forEach(c => {
+    if(c && typeof c.claim === 'string' && c.claim.length > 24) cands.push(c.claim);
+  });
+  for(const t of cands){
+    const key = t.slice(0, 60);
+    if(S.seenProse.has(key)) continue;
+    S.seenProse.add(key);
+    return t;
+  }
+  return null;
+}
+
+/* ev (contract) → D (what the card shows). Fields:
+     kind/label/detail  the head
+     quote              the AGENT's own words, verbatim
+     narr               DERIVED by this dashboard — rendered muted with `›`
+     face               raw truth excerpt (the command, or body line 1)
+     body               expander text                                       */
+function derive(ev){
+  const k0 = ICON[ev.kind] ? ev.kind : 'SYSTEM';
+  const D = { kind:k0, label:ev.label || '', detail:ev.detail || '',
+              narr:'', face:'', quote:ev.quote || '', think:null,
+              body: ev.body == null ? '' : String(ev.body), code:k0 === 'WRITE' };
+
+  if(k0 === 'RUN'){
+    const raw = D.body || D.label;
+    const r = readCmd(raw);
+    if(r){ D.kind = r.kind; D.label = r.label; D.detail = r.detail; D.narr = r.narr; }
+    else  { D.label = cut(shellOf(raw).replace(/^\$ /, ''), 40); D.detail = ''; D.mono = true; }
+    D.face = shellOf(raw);
+    if(ev.detail && /^exit\s+(?!0\s*$)/.test(ev.detail))
+      D.detail = (D.detail ? D.detail + ' · ' : '') + ev.detail;
+  }
+  else if(k0 === 'EMIT'){
+    const raw = D.body || ev.label || '';
+    const j = tryJSON(raw) || salvageJSON(raw);
+    if(j){
+      const conf = typeof j.confidence === 'number' ? j.confidence : null;
+      D.label  = 'draft result.json';
+      D.detail = [conf != null ? 'confidence ' + conf.toFixed(2) : '',
+                  j.positions && j.positions.length
+                    ? j.positions.length + ' position' + (j.positions.length === 1 ? '' : 's') : '',
+                  j.citations && j.citations.length
+                    ? j.citations.length + ' citation' + (j.citations.length === 1 ? '' : 's') : '',
+                  j._partial ? 'body truncated at 4 000 chars' : ''
+                 ].filter(Boolean).join(' · ');
+      D.quote  = typeof j.headline === 'string' ? j.headline : '';
+      D.narr   = 'its working answer so far — rewritten every time it learns something';
+      D.body   = j._partial ? raw : JSON.stringify(j, null, 1);
+      D.code   = true;
+      D.think  = pickProse(j);
+    } else if(raw){
+      /* prose, not a payload — that is the agent talking */
+      D.kind = 'THOUGHT'; D.quote = cut(raw, 420);
+      D.label = ''; D.body = '';
+    }
+  }
+  else if(k0 === 'WRITE'){
+    if(!D.label || /^(write|edit|apply_?patch|create)$/i.test(D.label)){
+      D.detail = D.detail || D.label || 'apply_patch';
+      D.label  = 'a file into /work';
+    }
+    D.narr = 'writing the analysis code it is about to run';
+    D.face = firstLine(D.body);
+  }
+  else if(k0 === 'SEARCH'){
+    /* Codex's own web_search item — label is already the query it typed */
+    D.detail = D.detail || 'web search';
+    D.narr   = 'going out to the open web for its own evidence';
+    D.face   = D.body.trim().indexOf('\n') > 0 ? firstLine(D.body) : '';
+  }
+  else {
+    D.narr = sysNarr(D.label);
+    /* a one-line body is already fully shown by the expander — no echo */
+    D.face = D.body.trim().indexOf('\n') > 0 ? firstLine(D.body) : '';
+  }
+
+  /* THOUGHT — the model's OWN words, so no derived styling, ever.
+     Codex reasoning items are TITLE LINES only: `**Planning agent setup**`,
+     sometimes two stacked, never a title-plus-prose-body. So strip the
+     markers and show EVERY line; there is no body to split off, and a
+     headline-only card must look finished rather than broken. */
+  if(D.kind === 'THOUGHT'){
+    const lines = String(D.quote || D.body || D.label || '').split('\n')
+      .map(l => l.replace(/\*\*/g, '').replace(/^\s*[#>]+\s*/, '').trim())
+      .filter(Boolean);
+    D.quote  = lines.join('\n');
+    D.label  = '';
+    D.detail = ev.detail && !/^thought$/i.test(ev.detail) ? ev.detail
+             : lines.length > 1 ? lines.length + ' reasoning steps' : 'reasoning · the agent’s own words';
+    D.body   = ''; D.face = ''; D.narr = '';
+  }
+
+  if(D.face && D.face === D.quote) D.face = '';
+  return D;
+}
 
 function scrollRail(){
   const y = Math.max(0, rail.offsetHeight + 24 - railWrap.clientHeight);
@@ -219,9 +490,34 @@ function collapseOpen(){
   if(openRow){ openRow.classList.remove('open'); openRow.classList.add('dim'); openRow = null; }
 }
 
+function trimRail(){
+  while(rail.children.length > MAX_ROWS){
+    const dead = rail.firstElementChild;
+    for(const [k, v] of rowsById) if(v === dead) rowsById.delete(k);
+    dead.remove();
+  }
+}
+
+/* an honest marker for time the replay compressed away */
+function gapChip(seconds){
+  $('#railHint').classList.add('gone');
+  rail.appendChild(el('div', 'gapchip', `⋯ thinking ${Math.round(seconds)}s`));
+  trimRail();
+  requestAnimationFrame(scrollRail);
+}
+
 function onTool(ev){
   $('#railHint').classList.add('gone');
-  const kind = ICON[ev.kind] ? ev.kind : 'SYSTEM';
+  const D = derive(ev);
+
+  /* a THOUGHT card in the agent's own words, lifted out of the draft it is
+     emitting — shown BEFORE the draft row that carried it */
+  if(D.think) onTool({type:'tool', kind:'THOUGHT', status:'ok',
+                      id:(ev.id || 'e' + rail.children.length) + '#think',
+                      detail:'its own words · from the draft it just emitted',
+                      quote:D.think});
+
+  const kind = D.kind;
 
   /* upsert by id — a running row can be completed later */
   let row = ev.id ? rowsById.get(ev.id) : null;
@@ -237,40 +533,57 @@ function onTool(ev){
          <span class="grow"></span>
          <span class="meta tok"></span><span class="meta ms"></span><span class="st"></span>
        </div>
+       <div class="rowface">
+         <div class="quote" hidden></div>
+         <div class="narr" hidden title="Written by this dashboard from the command that ran — NOT the agent's own words."><b>&rsaquo;</b><span></span></div>
+         <div class="raw" hidden></div>
+       </div>
        <div class="rowbody"><pre></pre></div>`;
     rail.appendChild(row);
     if(ev.id) rowsById.set(ev.id, row);
-    while(rail.children.length > MAX_ROWS){
-      const dead = rail.firstElementChild;
-      for(const [k,v] of rowsById) if(v === dead) rowsById.delete(k);
-      dead.remove();
-    }
+    trimRail();
+    showLegend();
   }
 
   row.dataset.status = ev.status || 'ok';
   row.className = 'row k-' + kind +
     (row.classList.contains('open') ? ' open' : '') +
-    (row.classList.contains('dim')  ? ' dim'  : '');
+    (row.classList.contains('dim')  ? ' dim'  : '') +
+    (D.mono ? ' mono' : '');
   if(ev.status === 'fail') row.classList.add('fail');
 
-  row.querySelector('.ic').textContent     = ICON[kind];
-  row.querySelector('.kind').textContent   = VERB[kind];
-  row.querySelector('.label').textContent  = ev.label || '';
-  row.querySelector('.detail').textContent = ev.detail || '';
+  row.querySelector('.ic').textContent     = ICON[kind] || '·';
+  row.querySelector('.kind').textContent   = VERB[kind] || kind;
+  row.querySelector('.label').textContent  = D.label;
+  row.querySelector('.detail').textContent = D.detail;
   row.querySelector('.tok').textContent    = ev.tokens ? fmtTok(ev.tokens) + ' tok' : '';
   row.querySelector('.ms').textContent     = ev.ms ? ev.ms + 'ms' : '';
-  row.querySelector('.st').textContent     = MARK[ev.status] || '✓';
+  row.querySelector('.st').textContent     = kind === 'THOUGHT' ? '' : (MARK[ev.status] || '✓');
+
+  const q = row.querySelector('.quote');
+  q.hidden = !D.quote; if(D.quote) q.textContent = mend(D.quote);
+  const nr = row.querySelector('.narr');
+  nr.hidden = !D.narr; if(D.narr) nr.querySelector('span').textContent = D.narr;
+  const rw = row.querySelector('.raw');
+  rw.hidden = !D.face; if(D.face) rw.textContent = D.face;
+  row.querySelector('.rowface').hidden = !(D.quote || D.narr || D.face);
 
   if(ev.tokens){
     S.tally[ev.id || ('_' + rail.children.length)] = ev.tokens;
-    setTokens(Object.values(S.tally).reduce((a,b) => a + b, 0));
+    setTokens(Object.values(S.tally).reduce((a, b) => a + b, 0));
   }
 
-  if(ev.body){
-    if(openRow && openRow !== row) collapseOpen();
-    row.classList.remove('dim'); row.classList.add('open');
-    openRow = row;
-    startBody(row, kind, String(ev.body));
+  /* expand once per distinct body — the completion event repeats the command
+     verbatim, and re-typing it was half of why the rail read as a terminal */
+  if(D.body){
+    const sig = D.body.length + ':' + D.body.slice(0, 48);
+    if(row.dataset.sig !== sig){
+      row.dataset.sig = sig;
+      if(openRow && openRow !== row) collapseOpen();
+      row.classList.remove('dim'); row.classList.add('open');
+      openRow = row;
+      startBody(row, D.code, D.body);
+    }
   }
   requestAnimationFrame(scrollRail);
 }
@@ -285,12 +598,11 @@ function hl(txt){
         `<span class="t-num">${n}</span>`);
 }
 
-function startBody(row, kind, body){
+function startBody(row, code, body){
   const lines = body.replace(/\s+$/,'').split('\n');
   const shown = lines.slice(0, BODY_LINES).join('\n');
   const extra = Math.max(0, lines.length - BODY_LINES);
   const pre   = row.querySelector('pre');
-  const code  = kind === 'WRITE';
 
   const render = (txt, caret) => {
     pre.innerHTML = (code ? hl(txt) : esc(txt)) + (caret ? '<span class="caret"></span>' : '');
@@ -323,26 +635,63 @@ function startBody(row, kind, body){
 const slip = $('#slip');
 const live = [];
 const BAD = /Traceback|Error|Exception|FAILED|CRITICAL|refus/i;
+let lastLog = 0;
+
+function spawnSlip(txt, cls, dur){
+  const n = document.createElement('div');
+  n.className = 'slipline ' + cls;
+  n.textContent = txt;
+  n.style.left   = (20 + Math.random()*430) + 'px';
+  n.style.bottom = (18 + Math.random()*300) + 'px';
+  n.style.animationDuration = dur + 'ms';
+  n.addEventListener('animationend', () => {
+    n.remove();
+    const i = live.indexOf(n); if(i >= 0) live.splice(i,1);
+  }, {once:true});
+  slip.appendChild(n); live.push(n);
+  while(live.length > MAX_SLIP) live.shift().remove();
+}
 
 function onLog(ev){
   S.logLines++;
   const txt = String(ev.text || '').replace(/\s+$/,'').slice(0, 96);
   if(!txt) return;
-
-  const el = document.createElement('div');
-  el.className = 'slipline ' + (BAD.test(txt) ? 's-bad' : (ev.stream === 'stderr' ? 's-err' : 's-out'));
-  el.textContent = txt;
-  el.style.left   = (20 + Math.random()*430) + 'px';
-  el.style.bottom = (18 + Math.random()*300) + 'px';
-  el.style.animationDuration = (760 + Math.random()*180) + 'ms';
-  el.addEventListener('animationend', () => {
-    el.remove();
-    const i = live.indexOf(el); if(i >= 0) live.splice(i,1);
-  }, {once:true});
-
-  slip.appendChild(el); live.push(el);
-  while(live.length > MAX_SLIP) live.shift().remove();
+  lastLog = Date.now();
+  setThinking(false);
+  spawnSlip(txt, BAD.test(txt) ? 's-bad' : (ev.stream === 'stderr' ? 's-err' : 's-out'),
+            760 + Math.random()*180);
 }
+
+/* ── the quiet ────────────────────────────────────────────────────────
+   The agent genuinely goes silent for 30–60s at a stretch. Rather than
+   let the panel die, SAY SO: abstract particles plus an honest counter.
+   None of this is invented agent output — it is the dashboard admitting
+   it is waiting, which is what makes the wait read as suspense.        */
+const IDLE_GLYPH = ['·','∴','⋯','┈','◦','∘'];
+const thinkBar = el('div', 'thinkbar',
+  '<span class="tdots"><i></i><i></i><i></i></span><span class="ttxt"></span>');
+railWrap.appendChild(thinkBar);
+
+const legend = el('div', 'raillegend',
+  '<b>&rsaquo;</b> italic lines are this dashboard’s label for the action — not the agent’s words');
+railWrap.appendChild(legend);
+function showLegend(){ legend.classList.add('on'); }
+
+function setThinking(on, secs){
+  thinkBar.classList.toggle('on', !!on);
+  if(on) thinkBar.querySelector('.ttxt').textContent =
+    'agent thinking · ' + secs + 's since last output';
+}
+
+setInterval(() => {
+  const alive = S.t0 && /^(spawning|running|verifying)$/.test(S.phase) && $('#tomb').hidden;
+  if(!alive || (typeof A2 !== 'undefined' && A2.open)){ setThinking(false); return; }
+  const gap = Date.now() - (lastLog || S.t0);
+  if(gap < 1400){ setThinking(false); return; }
+  setThinking(true, Math.round(gap / 1000));
+  if(Math.random() < 0.72)
+    spawnSlip(IDLE_GLYPH[(Math.random() * IDLE_GLYPH.length) | 0], 's-idle', 1500 + Math.random()*520);
+}, 420);
 
 /* ════════════════════════ RIGHT · THE JUDGE ════════════════════════ */
 const SEED = [
@@ -464,6 +813,7 @@ setInterval(() => {
   if(S.t0 && S.phase !== 'destroyed') S.elapsed = (Date.now() - S.t0) / 1000;
   const t = fmtMS(S.elapsed);
   $('#sClock').textContent = t; $('#hudClock').textContent = t;
+  paintNowNote();
 }, 120);
 
 /* ═══════════════════════ EVENT DISPATCH ════════════════════════════ */
@@ -553,7 +903,9 @@ fetch('/api/portfolio')
   .catch(() => initTreemap(FALLBACK))
   .then(() => {
     connect();
-    if(REPLAY) runReplay(REPLAY);
+    /* ?auto=1 — presentation mode: no chrome, no click, straight through */
+    if(AUTO) document.body.classList.add('auto');
+    if(REPLAY){ RP.on = true; refreshNow(); runReplay(REPLAY); }
     else if(ACT2Q) jumpToAct2(ACT2Q);
   });
 
@@ -591,29 +943,56 @@ const tsOf = e => {
 };
 const evOf = e => (e && typeof e === 'object' && e.event && !e.type) ? e.event : e;
 
+/* ── pacing ────────────────────────────────────────────────────────────
+   "Appear the same way full, but be fast": every event plays, none is
+   skipped. Only DEAD AIR is compressed, and every second removed is
+   announced on the rail as `⋯ thinking 47s`, so the audience always sees
+   that time passed and how much.
+
+     rate 1  true original timing, nothing collapsed
+     rate 2  gap × 0.35, capped at 1200ms   ← default, ~650s run in ~70s
+     rate 4  gap × 0.175, capped at 600ms
+
+   Older recordings carry no timestamps at all; those fall back to a
+   per-type rhythm scaled by the same rate. Both paths must work.       */
 function gapMs(prev, cur){
+  const r = RP.rate;
   const a = tsOf(prev), b = tsOf(cur);
   if(a != null && b != null){
-    const d = (b - a) * ((Math.abs(b - a) < 1000) ? 1000 : 1);   // seconds vs ms
-    if(isFinite(d) && d >= 0) return Math.min(2600, Math.max(8, d));
+    const raw = (b - a) * ((Math.abs(b - a) < 1000) ? 1000 : 1);   // seconds vs ms
+    if(isFinite(raw) && raw >= 0){
+      if(r <= 1) return { ms: Math.min(30000, Math.max(8, raw)), skipped: 0 };
+      const cap = 1200 * 2 / r, f = 0.35 * 2 / r;
+      const ms  = Math.min(cap, raw * f);
+      return { ms: Math.max(8, ms), skipped: raw * f > cap ? raw / 1000 : 0 };
+    }
   }
   const t = (evOf(cur) || {}).type;
-  return t === 'log' ? 42 : t === 'tool' ? 300 : 520;
+  const base = t === 'log' ? 42 : t === 'tool' ? 300 : 520;
+  return { ms: Math.max(8, base * 2 / r), skipped: 0 };
 }
 
-function playEvents(list){
+function playEvents(list, meta){
   const evs = (Array.isArray(list) ? list : (list && (list.events || list.stream)) || [])
     .filter(Boolean);
-  if(!evs.length){ toast('run has no events'); return false; }
+  if(!evs.length){ toast('run has no recorded stream'); return false; }
   resetRun();
-  $('#railHint').textContent = 'REPLAY';
+  RP.on = true;
+  RP.headline = (meta && meta.headline) || RP.headline || '';
+  RP.id = (meta && meta.run_id) || RP.id || '';
+  setNow('replay');
+  $('#railHint').textContent = 'REPLAY · ' + (RP.id || 'recorded run');
+  const token = ++RP.token;
   let i = 0;
   (function step(){
-    if(i >= evs.length) return;
-    const cur = evs[i], prev = evs[i-1];
+    if(token !== RP.token || i >= evs.length){ if(token === RP.token) RP.done = true; return; }
+    const cur = evs[i];
     handle(evOf(cur));
     i++;
-    if(i < evs.length) setTimeout(step, Math.max(8, gapMs(cur, evs[i]) / SPEED));
+    if(i >= evs.length){ RP.done = true; return; }
+    const g = gapMs(cur, evs[i]);
+    if(g.skipped >= 3) gapChip(g.skipped);
+    setTimeout(step, g.ms);
   })();
   return true;
 }
@@ -634,7 +1013,17 @@ function fetchRun(id){
     .then(rid => fetch('/api/runs/' + encodeURIComponent(rid)).then(r => r.ok ? r.json() : Promise.reject(r.status)));
 }
 function runReplay(id){
-  fetchRun(id).then(playEvents)
+  fetchRun(id)
+    .then(run => {
+      const meta = { run_id: (run && (run.run_id || run.id)) || (typeof id === 'string' ? id : ''),
+                     headline: (run && ((run.news || {}).headline || run.headline ||
+                                        ((run.result || {}).headline))) || '' };
+      /* a run with no recorded stream is not broken — it just has no arena */
+      if(!playEvents(run, meta) && run && run.result){
+        RP.on = true; RP.headline = meta.headline; RP.id = meta.run_id;
+        setNow('replay'); S.lastResult = run.result; openAct2(run.result);
+      }
+    })
     .catch(e => { toast('replay unavailable · ' + String(e).slice(0,50)); });
 }
 /* ?act2=<id|last> — skip the arena, open Act II on that run's result */
@@ -728,6 +1117,106 @@ $('#promptBtn').onclick = () => {
   p.onclick = ev => { if(ev.target === p) p.hidden = true; };
 };
 
+/* ══════════════════════════════════════════════════════════════════════
+   THE NOW CHIP — what is on this screen, right now, readable from the back
+   of the room. A replay must never be mistakable for a live run; the
+   content is genuine either way, so saying which costs us nothing.
+   ══════════════════════════════════════════════════════════════════════ */
+const NOWC = {
+  live    : ['●', 'LIVE',         'nowlive'],
+  external: ['●', 'EXTERNAL RUN', 'nowext'],
+  replay  : ['▷', 'REPLAY',       'nowrep'],
+  idle    : ['○', 'IDLE',         'nowidle'],
+};
+let nowChip = null, nowMode = 'idle';
+function ensureNow(){
+  if(nowChip) return nowChip;
+  nowChip = el('div', 'hudcell hudnow nowidle',
+    '<span class="hudlab">STATUS</span>' +
+    '<div class="nowRow"><span class="nowGlyph">○</span><span class="nowWord">IDLE</span>' +
+    '<span class="nowNote"></span></div>');
+  const hs = $('#hudStats'); if(hs) hs.insertBefore(nowChip, hs.firstChild);
+  return nowChip;
+}
+function setNow(mode){
+  ensureNow();
+  if(mode) nowMode = mode;
+  const d = NOWC[nowMode] || NOWC.idle;
+  nowChip.className = 'hudcell hudnow ' + d[2];
+  nowChip.querySelector('.nowGlyph').textContent = d[0];
+  nowChip.querySelector('.nowWord').textContent  = d[1];
+  paintNowNote();
+}
+function paintNowNote(){
+  if(!nowChip) return;
+  const t = fmtMS(S.elapsed);
+  nowChip.querySelector('.nowNote').textContent =
+    nowMode === 'replay' ? (RP.rate + 'x · ' + clipTxt(RP.headline || RP.id || 'recorded run', 46) + ' · ' + t)
+  : nowMode === 'live'   ? (S.phase === 'idle' ? '' : S.phase) + ' · ' + t
+  : nowMode === 'external' ? 'started in another tab'
+  : 'press SPACE to run · L to replay';
+}
+const clipTxt = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+ensureNow(); setNow('idle');
+
+/* ══════════════════ THE REPLAY PICKER — compact, keyboard `L` ═════════ */
+const rpBtn = el('button', 'rpBtn', '▷<span>REPLAY</span>');
+const rpPanel = el('div', 'rpPanel');
+rpPanel.hidden = true;
+(function mountPicker(){
+  const hn = $('#hudNews');
+  if(hn) hn.insertBefore(rpBtn, hn.children[2] || null);
+  $('#viewport').appendChild(rpPanel);
+})();
+
+function rpHead(){
+  return `<div class="rpTop"><b>▷ REPLAY A PAST RUN</b>
+    <span class="rpSp">
+      ${[1,2,4].map(r => `<button data-r="${r}" class="${RP.rate===r?'on':''}">${r}x</button>`).join('')}
+    </span>
+    <span class="rpHint">1x = true original timing · 2x/4x collapse only the dead air, every event still plays</span>
+    <span class="rpX">ESC</span></div>`;
+}
+function rpRow(r){
+  const hz = [r.short_base, r.medium_base, r.long_base]
+    .map(v => typeof v === 'number' ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—').join(' / ');
+  const when = r.started_at
+    ? new Date(r.started_at * (r.started_at > 1e11 ? 1 : 1000)).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})
+    : '—';
+  return `<button class="rpRow${r.has_events === false ? ' noev' : ''}" data-id="${esc(r.run_id)}" data-ev="${r.has_events === false ? 0 : 1}">
+    <span class="rpV ${r.passed ? 'p' : 'f'}">${r.passed ? 'PASS' : 'FAIL'}</span>
+    <span class="rpH">${esc(clipTxt(r.headline || r.run_id, 54))}</span>
+    <span class="rpM">${when}</span>
+    <span class="rpM">${r.elapsed_s ? Math.round(r.elapsed_s) + 's' : '—'}</span>
+    <span class="rpM">${r.has_events === false ? 'result only' : (r.event_count || '') + ' events'}</span>
+    <span class="rpZ">${hz}</span></button>`;
+}
+function renderPicker(){
+  let body;
+  try{ body = RP.runs.slice(0, 8).map(rpRow).join(''); }
+  catch(e){ body = ''; RP.err = String(e).slice(0, 90); }
+  rpPanel.innerHTML = rpHead() + (body ||
+    `<div class="rpEmpty">${esc(RP.err || 'loading past runs…')}</div>`);
+  rpPanel.querySelectorAll('.rpSp button').forEach(b => b.onclick = e => {
+    e.stopPropagation(); RP.rate = +b.dataset.r; renderPicker(); paintNowNote();
+  });
+  rpPanel.querySelectorAll('.rpRow').forEach(b => b.onclick = () => {
+    closePicker();
+    closeAct2(true);
+    RP.headline = ''; RP.id = b.dataset.id;
+    if(b.dataset.ev === '0'){ jumpToAct2(b.dataset.id); RP.on = true; setNow('replay'); }
+    else runReplay(b.dataset.id);
+  });
+  rpPanel.querySelector('.rpX').onclick = closePicker;
+}
+function openPicker(){
+  rpPanel.hidden = false; renderPicker();
+  runsIndex().then(rs => { RP.runs = rs.filter(r => r && r.run_id); renderPicker(); })
+             .catch(() => renderPicker());
+}
+function closePicker(){ rpPanel.hidden = true; }
+rpBtn.onclick = () => rpPanel.hidden ? openPicker() : closePicker();
+
 function toast(msg){
   const t = $('#toast');
   t.textContent = msg;
@@ -746,6 +1235,8 @@ function resetRun(){
   $('#railHint').textContent = 'provisioning sandbox …';
   S.tally = {}; S.logLines = 0; S.accepted = false; S.attempt = 1;
   S.burn = []; S.lastTok = 0; S.elapsed = 0; S.t0 = Date.now();
+  S.seenProse = new Set(); S.seenSearch = new Set();
+  lastLog = 0; setThinking(false); legend.classList.remove('on');
   setTokens(0, true);
   setCredits(CREDITS_MAX, true);
   setPhase('spawning');
@@ -762,17 +1253,29 @@ function resetRun(){
 
 function setRunning(on){
   S.running = on;
+  if(!on){ S.mine = false; S.external = false; }
   const b = $('#runBtn');
   b.disabled = on;
   b.classList.toggle('busy', on);
-  b.querySelector('.rbTxt').textContent = on ? 'RUNNING…' : 'RUN ANALYSIS';
-  b.querySelector('.rbIcon').textContent = on ? '◐' : '▶';
+  b.classList.toggle('ext', !!(on && S.external));
+  b.classList.toggle('rep', !!(on && RP.on));
+  /* a replay must never wear the live run's label */
+  b.querySelector('.rbTxt').textContent =
+    !on ? 'RUN ANALYSIS' : RP.on ? 'REPLAY' : S.external ? 'EXTERNAL RUN' : 'RUNNING…';
+  b.querySelector('.rbIcon').textContent = on ? (RP.on ? '▷' : '◐') : '▶';
+  const h = b.querySelector('.rbHint');
+  if(h) h.textContent = !on ? ((S.sel && S.sel.size > 1) ? S.sel.size + ' EVENTS · SPACE' : 'press SPACE · L to replay')
+       : RP.on ? 'recorded run · ' + RP.rate + 'x'
+       : S.external ? 'started in another tab' : 'this tab';
+  refreshNow();
 }
 
 function triggerRun(){
   if(S.running) return;
   const news = selectedNews();
   if(!news.length){ toast('select at least one news event'); return; }
+  RP.on = false; RP.token++;              // a live run cancels any playback
+  S.mine = true; S.external = false;
   setRunning(true);                       // disable immediately — belt and braces
   resetRun();
   // full objects, never ids — one combined analysis, one sandbox
@@ -781,7 +1284,8 @@ function triggerRun(){
     body: JSON.stringify({news})
   })
   .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(r.status + ' ' + t)))
-  .catch(e => { toast('could not start run · ' + String(e).slice(0,60)); setRunning(false); });
+  .catch(e => { toast('could not start run · ' + String(e).slice(0,60));
+                S.mine = false; setRunning(false); });
 }
 
 $('#runBtn').onclick = triggerRun;
@@ -797,17 +1301,25 @@ $('#scanBtn').onclick = () => {
     .then(() => b.classList.remove('busy'));
 };
 
-/* health probe keeps the button honest if a run was started elsewhere */
+/* Health probe keeps the HUD honest if a run was started elsewhere. A run
+   this tab did not start is labelled EXTERNAL RUN — never silently "busy". */
 setInterval(() => {
+  if(RP.on) return;                         // playback owns the chip
   fetch('/api/health').then(r => r.json()).then(h => {
-    if(h && h.run && typeof h.run.active === 'boolean' && h.run.active !== S.running) setRunning(h.run.active);
+    const r = (h && h.run) || {};
+    if(typeof r.active !== 'boolean') return;
+    S.external = !!(r.active && !S.mine);
+    if(r.active !== S.running) setRunning(r.active);
+    else { setRunning(r.active); }          // refresh caption / chip in place
   }).catch(() => {});
 }, 3000);
 
 addEventListener('keydown', e => {
   if(e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   const k = e.key;
-  if(k === ' ' || k === 'Spacebar'){ e.preventDefault(); closeAct2(); triggerRun(); return; }
+  if(k === 'l' || k === 'L'){ e.preventDefault(); rpPanel.hidden ? openPicker() : closePicker(); return; }
+  if(!rpPanel.hidden && k === 'Escape'){ e.preventDefault(); closePicker(); return; }
+  if(k === ' ' || k === 'Spacebar'){ e.preventDefault(); closePicker(); closeAct2(); triggerRun(); return; }
   if(!A2.open){
     if(k === 'v' || k === 'V'){ e.preventDefault(); S.lastResult ? openAct2(S.lastResult) : jumpToAct2('last'); }
     return;
