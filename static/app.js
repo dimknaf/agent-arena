@@ -541,9 +541,15 @@ function onTool(ev){
        <div class="rowbody"><pre></pre></div>`;
     rail.appendChild(row);
     if(ev.id) rowsById.set(ev.id, row);
+    row.classList.add('clickable');
+    row.addEventListener('click', () => openRowDetail(row));
     trimRail();
     showLegend();
   }
+  /* keep the FULL event on the node — the start event carries the command,
+     the completion event carries exit/ms/tokens. The drawer wants both. */
+  row._ev = Object.assign({}, row._ev || {}, ev);
+  row._D  = D;
 
   row.dataset.status = ev.status || 'ok';
   row.className = 'row k-' + kind +
@@ -712,6 +718,7 @@ initChecks();
 
 function onVerdict(v){
   const checks = v.checks || [];
+  S.lastVerdict = v;
   checks.forEach((c, i) => setTimeout(() => {
     let el = checkEls.get(c.id);
     if(!el){
@@ -858,6 +865,8 @@ function onResult(ev){
   /* ACT II — after the stamp, the confetti and the treemap recolour have all
      landed (repaintTreemap needs ~2.0s: 115ms stagger + tail). */
   S.lastResult = d;
+  S.runId = ev.run_id || d.run_id || RP.id || S.runId || '';
+  if(typeof navReady === 'function') navReady();
   clearTimeout(S.actTimer);
   S.actTimer = setTimeout(() => openAct2(d), 2600 / SPEED);
 }
@@ -1320,7 +1329,11 @@ addEventListener('keydown', e => {
   if(k === 'l' || k === 'L'){ e.preventDefault(); rpPanel.hidden ? openPicker() : closePicker(); return; }
   if(!rpPanel.hidden && k === 'Escape'){ e.preventDefault(); closePicker(); return; }
   if(k === ' ' || k === 'Spacebar'){ e.preventDefault(); closePicker(); closeAct2(); triggerRun(); return; }
+  /* the drawer owns ESC while it is up */
+  if(k === 'Escape' && drawerOpen()){ e.preventDefault(); closeRowDetail(); return; }
+  if(k === 's' || k === 'S'){ e.preventDefault(); goView('analysis'); return; }
   if(!A2.open){
+    if(k === 'a' || k === 'A' || k === 'Escape'){ e.preventDefault(); goView('arena'); return; }
     if(k === 'v' || k === 'V'){ e.preventDefault(); S.lastResult ? openAct2(S.lastResult) : jumpToAct2('last'); }
     return;
   }
@@ -1337,7 +1350,13 @@ addEventListener('keydown', e => {
 const A2 = { open:false, cards:[], order:[], sel:-1, timers:[], fall:null,
              cites:[], byTicker:{}, data:null, hz:'long_term', dom:1, casc:null, focus:0 };
 
-const after = (ms, fn) => A2.timers.push(setTimeout(fn, ms / SPEED));
+/* A2.instant collapses every beat to "now" — used when RE-ENTERING an
+   analysis that was already built, so the switcher feels like a tab and
+   not like a replay of the reveal. The first open is always cinematic. */
+const after = (ms, fn) => {
+  if(A2.instant){ try{ fn(); }catch(e){ console.error('beat', e); } return; }
+  A2.timers.push(setTimeout(fn, ms / SPEED));
+};
 const clearBeats = () => { A2.timers.forEach(clearTimeout); A2.timers = []; };
 const clip = (s, n) => String(s||'').length > n ? String(s).slice(0, n - 1) + '…' : String(s||'');
 const dots = c => { const f = Math.round(Math.max(0, Math.min(1, c || 0)) * 5);
@@ -1608,7 +1627,9 @@ function repaintTreemapAt(d, h){
 /* ══ open / close ═══════════════════════════════════════════════ */
 function openAct2(d){
   if(!d || !Array.isArray(d.positions) || !d.positions.length || A2.open) return;
+  S.lastResult = d;
   A2.open = true; A2.data = d; A2.sel = -1;
+  if(typeof navReady === 'function'){ navReady(); setNav('analysis'); }
   clearBeats();
   A2.dom = fanDomain(d.positions);
   const hzs = liveHorizons(d);
@@ -1641,6 +1662,7 @@ function openAct2(d){
 function closeAct2(instant){
   if(!A2.open) return;
   A2.open = false; clearBeats(); closeDetail();
+  if(typeof setNav === 'function') setNav('arena');
   const a = $('#act2');
   if(instant){ a.hidden = true; a.classList.remove('closing'); }
   else { a.classList.add('closing');
