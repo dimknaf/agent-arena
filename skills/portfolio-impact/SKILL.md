@@ -75,7 +75,7 @@ Every estimate is `{low, base, high}`. Vary the chain inputs and **re-run**; say
 - **base** — central estimate
 - **high** — contained and mostly deferred: smaller fraction, shorter, lower permanent share
 
-**V5 requires `low <= base <= high` numerically**, so for damage `low` is the most negative. Bounds are +/-60; realistic single-event moves are +/-0.5% to +/-8%. Never type three numbers the arithmetic did not produce.
+**V5b requires `low <= base <= high` numerically**, so for damage `low` is the most negative. Bounds are +/-60; realistic single-event moves are +/-0.5% to +/-8%. Never type three numbers the arithmetic did not produce.
 
 ## THE ARITHMETIC RULE — nine reconciliation gates
 
@@ -104,7 +104,15 @@ Top level: `news_id`, `headline`, `published_at` (ISO-8601, `""` if truly unknow
 
 `positions[]`: `ticker`, `sector`, `weight_pct`, `value_before_usd`, the six chain inputs, `revenue_at_stake_usd`, `profit_at_stake_usd`, `value_at_stake_usd`, `market_cap_usd`, `value_basis` (plain-language derivation of `value_at_stake_usd`, 20-400 chars), `variant_basis`, `rationale`, `confidence`, and `horizons.{short_term,medium_term,long_term}` each with `method`, `note`, and `impact_pct`/`impact_usd` as `{low, base, high}`.
 
-**Every holding appears**, with the same `ticker`, `weight_pct` and `value_before_usd` as the portfolio file. A genuinely unaffected holding may **skip the chain**: use an all-zero 3x3 grid and write a `value_basis` containing the literal token `market_cap_value_impact` inside a full sentence (still >=20 chars), plus an honest rationale for why it is insulated. **Never fabricate a chain to justify a zero.**
+**Every holding appears**, with the same `ticker`, `weight_pct` and `value_before_usd` as the portfolio file. Say "no fundamental damage" **structurally**, not in prose: set `affected_fraction` to `0.0` and `horizons.long_term.impact_pct.base` to `0.0`. That is self-documenting and needs no magic token. `value_basis` should be a genuine explanation of why the name is insulated. **Never fabricate a chain to justify a zero.**
+
+Two easy mistakes:
+
+> **Zero the fraction, never the cap.** Still give an unaffected name a **real** `market_cap_usd` and an explicit `value_at_stake_usd: 0.0`. V7 then *verifies* it instead of skipping, and it passes for free because `0 == 0/cap*100`. Supply both and it is checked; omit either and it is merely skipped. This holds both for an all-zero name and for one that moves on sentiment alone — non-zero `short_term`, zero `long_term`, no chain.
+>
+> **Write the `0.0`, do not leave a stale number.** A non-zero `value_at_stake_usd` sitting beside a zero impact grid is incoherent — billions at stake yet no impact anywhere — and V7 fails it loudly. When you conclude a name is unaffected, reset the stake as well as the fraction.
+>
+> **You cannot dodge the gate by leaving the chain blank.** Declaring no chain while claiming a non-zero `long_term.impact_pct.base` does **not** skip V7 — it fails with a specific message. Claim a long-run number and you must justify it with the chain.
 
 ## Tools
 

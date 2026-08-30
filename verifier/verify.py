@@ -444,23 +444,29 @@ def _v7_skip(pos: dict, methodology: Any) -> bool:
     if isinstance(methodology, str) and methodology == "market_cap_value_impact":
         return True
 
-    # 2. Structural: the entire 3x3 impact grid is zero -> a genuinely unaffected name.
-    cells = [_cell(pos, h, "impact_pct", v) for h in HORIZONS for v in VARIANTS]
-    if cells and all(c == 0.0 for c in cells):
-        return True
+    # Every structural exemption below is gated on ACTUALLY LACKING what the identity
+    # needs. If the position hands us a real market cap and a value_at_stake, we verify
+    # it -- even an all-zero name, where 0 == 0/cap*100 closes for free. Skipping a
+    # position we could have checked is how an incoherent pair (zero grid, non-zero
+    # value_at_stake) would slip through.
+    cap = _num(pos.get("market_cap_usd"))
+    stake = _num(pos.get("value_at_stake_usd"))
+    inputs_absent = cap is None or cap <= 0 or stake is None
 
-    # 3. Structural: no chain was declared (no revenue at risk, or all six inputs zero)
-    #    AND no long-run impact is claimed AND the identity's inputs are absent anyway.
-    #    The long_base guard closes the loophole: claim a long-run number and you are
-    #    gated on justifying it, chain or no chain.
-    long_base = _cell(pos, "long_term", "impact_pct", "base")
-    if long_base == 0.0:
-        inputs = [_num(pos.get(key)) for key in CHAIN_INPUTS]
-        no_chain = all(i == 0.0 for i in inputs) or _num(pos.get("affected_fraction")) == 0.0
-        cap = _num(pos.get("market_cap_usd"))
-        stake = _num(pos.get("value_at_stake_usd"))
-        if no_chain and (cap is None or cap <= 0 or stake is None):
+    if inputs_absent:
+        # 2. Structural: the entire 3x3 impact grid is zero -> a genuinely unaffected name.
+        cells = [_cell(pos, h, "impact_pct", v) for h in HORIZONS for v in VARIANTS]
+        if cells and all(c == 0.0 for c in cells):
             return True
+
+        # 3. Structural: no chain was declared (no revenue at risk, or all six inputs
+        #    zero) AND no long-run impact is claimed. The long_base guard closes the
+        #    loophole: claim a long-run number and you are gated on justifying it,
+        #    chain or no chain.
+        if _cell(pos, "long_term", "impact_pct", "base") == 0.0:
+            inputs = [_num(pos.get(key)) for key in CHAIN_INPUTS]
+            if all(i == 0.0 for i in inputs) or _num(pos.get("affected_fraction")) == 0.0:
+                return True
 
     # 4. Fallback only: legacy prose token.
     basis = pos.get("value_basis")

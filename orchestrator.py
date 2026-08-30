@@ -270,7 +270,7 @@ def _fallback_verify(result: dict, portfolio: dict, measured: dict) -> dict:
     return {"passed": all(c["passed"] for c in checks), "checks": checks}
 
 
-def _strictify_schema(node: Any) -> Any:
+def _strictify_schema(node: Any, repairs: list[str], path: str = "") -> Any:
     """Make a JSON Schema acceptable to OpenAI structured outputs (strict mode).
 
     `codex --output-schema` feeds the schema to the API in strict mode, which demands
@@ -282,28 +282,45 @@ def _strictify_schema(node: Any) -> Any:
     (owned by workstream B). This only ever ADDS keys to `required`, so anything valid
     against the normalised schema is still valid against the original -- verify.py's own
     jsonschema pass is unaffected.
+
+    REPAIRS ARE REPORTED, NEVER SILENT. Repairing means a strict-mode mistake in
+    impact.schema.json no longer kills the run -- which is what we want on stage -- but it
+    also removes the HTTP 400 as a feedback channel, leaving verifier/test_golden.py's
+    test_schema_is_strict_mode_clean as the only other gate. So `repairs` collects every
+    node we had to touch and the caller surfaces it loudly. Silently diverged copies are
+    a worse failure mode than a loud death, precisely because nobody notices them.
     """
     if isinstance(node, list):
-        return [_strictify_schema(n) for n in node]
+        return [_strictify_schema(n, repairs, path) for n in node]
     if not isinstance(node, dict):
         return node
 
-    out = {k: _strictify_schema(v) for k, v in node.items()}
+    out = {
+        k: _strictify_schema(v, repairs, f"{path}.{k}" if path else k)
+        for k, v in node.items()
+    }
     props = out.get("properties")
     if isinstance(props, dict) and props:
+        missing = [k for k in props if k not in (out.get("required") or [])]
+        if missing:
+            repairs.append(f"{path or 'root'}: added to required {missing}")
+        if out.get("additionalProperties") is not False:
+            repairs.append(f"{path or 'root'}: set additionalProperties=false")
         out["required"] = list(props.keys())
-        out.setdefault("additionalProperties", False)
+        out["additionalProperties"] = False
     return out
 
 
-def _schema_upload_bytes() -> bytes:
-    """The exact schema bytes we upload -- strict-mode normalised, stably serialised.
+def _schema_upload_bytes() -> tuple[bytes, list[str]]:
+    """The exact schema bytes we upload, plus any strict-mode repairs we had to make.
 
-    V6 compares this against what we read back out of the sandbox, so it must be
-    byte-identical on both sides.
+    V6 compares these bytes against what we read back out of the sandbox, so the
+    serialisation must be stable and byte-identical on both sides.
     """
     raw = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    return json.dumps(_strictify_schema(raw), indent=2, sort_keys=True).encode("utf-8")
+    repairs: list[str] = []
+    normalised = _strictify_schema(raw, repairs)
+    return json.dumps(normalised, indent=2, sort_keys=True).encode("utf-8"), repairs
 
 
 def _news_list(news: Any) -> list[dict]:
@@ -805,8 +822,25 @@ class Orchestrator:
         # out of the sandbox. Re-reading the file at verify time made V6 fail whenever
         # verifier/impact.schema.json changed on the host mid-run (workstream B editing
         # it), reporting agent tampering that never happened.
-        schema_bytes = _schema_upload_bytes()
+        schema_bytes, schema_repairs = _schema_upload_bytes()
         self.uploaded_schema_sha = _sha256_bytes(schema_bytes)
+        if schema_repairs:
+            # Loud on purpose. Repairing keeps the demo alive, but it also removes the
+            # HTTP 400 that would otherwise announce the mistake, so we announce it here.
+            await self.emit_tool(
+                "SYSTEM", "SCHEMA REPAIRED FOR STRICT MODE",
+                detail=f"{len(schema_repairs)} node(s) - run verifier/ tests",
+                status="fail",
+                body=(
+                    "verifier/impact.schema.json is not strict-mode clean. The sandbox copy "
+                    "was repaired so the run can proceed, but the repo file and the sandbox "
+                    "copy have now DIVERGED. Fix the file and re-run "
+                    "verifier/test_golden.py::test_schema_is_strict_mode_clean.\n\n"
+                    + "\n".join(schema_repairs[:20])
+                ),
+            )
+            for r in schema_repairs[:20]:
+                await self.emit_log("stderr", f"[orchestrator] schema repair: {r}")
         uploads = [
             FileUpload(source=json.dumps(portfolio, indent=2).encode(), destination=f"{WORK_DIR}/portfolio.json"),
             FileUpload(source=json.dumps(_news_list(news), indent=2).encode(),

@@ -398,6 +398,52 @@ def test_v7_still_gates_a_long_run_claim_made_without_a_chain():
     assert "market_cap_usd must be > 0" in v7["message"]
 
 
+def test_v7_catches_all_zero_grid_that_still_claims_value_at_stake():
+    """An all-zero grid does NOT buy an exemption when the position supplied a real cap
+    and a value_at_stake. Zero impact everywhere while claiming billions at stake is
+    incoherent, and skipping it would wave that through."""
+    r = valid_result()
+    pos = r["positions"][2]
+    for h in HORIZONS:
+        for v in VARIANTS:
+            pos["horizons"][h]["impact_pct"][v] = 0.0
+            pos["horizons"][h]["impact_usd"][v] = 0.0
+    for h in HORIZONS:                     # keep the portfolio grid reconciled
+        for v in VARIANTS:
+            pct = round(sum(p["weight_pct"] / 100.0 * p["horizons"][h]["impact_pct"][v]
+                            for p in r["positions"]), 6)
+            r["horizons"][h]["impact_pct"][v] = pct
+            r["horizons"][h]["impact_usd"][v] = round(100000.0 * pct / 100.0, 2)
+    pos["market_cap_usd"] = 500.0e9        # real cap...
+    pos["value_at_stake_usd"] = 99.0e9     # ...and an incoherent claim against it
+    v7 = by_id(run(r))["V7"]
+    assert v7["passed"] is False, v7["message"]
+    assert "XOM" in v7["message"] and "19.80" in v7["message"], v7["message"]
+
+
+def test_v7_verifies_a_coherent_all_zero_name_instead_of_skipping_it():
+    """The same all-zero name with a coherent zero stake is CHECKED and passes, so it
+    counts toward the 'chains close' tally rather than being waved through."""
+    r = valid_result()
+    pos = r["positions"][2]
+    for h in HORIZONS:
+        for v in VARIANTS:
+            pos["horizons"][h]["impact_pct"][v] = 0.0
+            pos["horizons"][h]["impact_usd"][v] = 0.0
+    for h in HORIZONS:
+        for v in VARIANTS:
+            pct = round(sum(p["weight_pct"] / 100.0 * p["horizons"][h]["impact_pct"][v]
+                            for p in r["positions"]), 6)
+            r["horizons"][h]["impact_pct"][v] = pct
+            r["horizons"][h]["impact_usd"][v] = round(100000.0 * pct / 100.0, 2)
+    pos["market_cap_usd"] = 500.0e9
+    pos["value_at_stake_usd"] = 0.0
+    v7 = by_id(run(r))["V7"]
+    assert v7["passed"] is True, v7["message"]
+    assert "3 value chains close" in v7["message"], v7["message"]
+    assert "skipped" not in v7["message"]
+
+
 def test_v7_checks_rather_than_skips_an_unaffected_name_with_real_inputs():
     """Deliberate asymmetry: an unaffected name that DOES supply a real market cap and a
     zero value_at_stake is verified (0 == 0/cap*100 closes trivially), not waved through."""
