@@ -2087,6 +2087,8 @@ function infoIcon(key){
   }
 })();
 addEventListener('scroll', tipHide, true);
+/* the icons stop propagation, so any other click dismisses the tip */
+document.addEventListener('click', tipHide);
 
 /* ══════════════════════════════════════════════════════════════════════
    PART 6 · EXPORT — one file, no network. Everything on this screen, in
