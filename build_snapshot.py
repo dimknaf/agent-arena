@@ -71,6 +71,11 @@ def build_image():
             }
         )
         .run_commands(
+            # MUST come before the npm install: CODEX_HOME is set as an env var above,
+            # and `npm i -g @openai/codex` warns "CODEX_HOME points to /root/.codex, but
+            # that path does not exist" if the directory is not there yet. Harmless, but
+            # it would show up in the demo build log.
+            "mkdir -p /root/.codex && chmod 700 /root/.codex",
             "apt-get update && apt-get install -y --no-install-recommends "
             "curl ca-certificates git jq ripgrep procps unzip "
             "&& rm -rf /var/lib/apt/lists/*",
@@ -87,7 +92,6 @@ def build_image():
             # ...and the contract it must not touch. It lives outside `-C /work`
             # so the agent's workspace root cannot reach it.
             "mkdir -p /verifier",
-            "mkdir -p /root/.codex",
         )
     )
 

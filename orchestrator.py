@@ -560,6 +560,15 @@ class Orchestrator:
             return
         self.state.raw_lines.append(raw)
 
+        # There is no auth fallback, so a credential problem must be loud and specific.
+        if not self.state.auth_suspect:
+            low = raw.lower()
+            for marker in AUTH_FAILURE_MARKERS:
+                if marker in low:
+                    self.state.auth_suspect = True
+                    self.state.auth_evidence = raw[:300]
+                    break
+
         stripped = raw.strip()
         if not (stripped.startswith("{") or stripped.startswith("[")):
             await self.emit_log(stream, raw)
@@ -764,23 +773,36 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
 """
 
     def _codex_cmd(self, prompt: str, *, resume: bool) -> str:
-        """Build the codex invocation.
+        """Build the codex invocation from an explicit per-subcommand flag allowlist.
 
         CRITICAL: `< /dev/null` is load-bearing. `codex exec` reads stdin whenever stdin
         is not a TTY, and Daytona session commands pipe stdin -- without the redirect it
-        prints "Reading additional input from stdin..." and blocks forever (reproduced
-        locally: 4+ minutes, zero output). `2>&1` matches the confirmed-working shape and
-        also guarantees we never lose progress output to a demuxing quirk.
+        prints "Reading additional input from stdin..." and blocks forever.
+
+        NO `2>&1`: Daytona demuxes the two pipes into on_stdout/on_stderr, and the
+        frontend colour-codes the slipstream by stream. Merging them would kill that.
+
+        `codex exec resume` REJECTS `-C` (verified against codex-cli 0.151.0:
+        "error: unexpected argument '-C' found"). `-o` is accepted on both. The working
+        directory is set by the shell `cd` in either case, so nothing is lost.
         """
+        flags = [
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--disable fast_mode",
+            f"-m {self.model}",
+            f"-c model_reasoning_effort={shlex.quote(self.effort)}",
+            "--json",
+            f"--output-schema {REMOTE_SCHEMA}",
+            f"-o {REMOTE_RESULT}",
+        ]
+        if not resume:
+            flags.append(f"-C {WORK_DIR}")  # accepted by `exec`, rejected by `exec resume`
+
         sub = "exec resume --last" if resume else "exec"
         return (
-            f"cd {WORK_DIR} && codex {sub} "
-            "--skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "
-            "--disable fast_mode "
-            f"-m {self.model} -c model_reasoning_effort={shlex.quote(self.effort)} "
-            f"--json --output-schema {REMOTE_SCHEMA} "
-            f"-o {REMOTE_RESULT} -C {WORK_DIR} {shlex.quote(prompt)} "
-            "< /dev/null 2>&1"
+            f"cd {WORK_DIR} && codex {sub} {' '.join(flags)} "
+            f"{shlex.quote(prompt)} < /dev/null"
         )
 
     async def _run_codex(self, sandbox, session_id: str, command: str, deadline: float) -> int:
@@ -1016,6 +1038,12 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                                     destination=f"{WORK_DIR}/budget.json")]
                     )
 
+                # Clear any previous attempt's output first: otherwise a resume that
+                # writes nothing would leave us re-verifying the stale file and the
+                # fallback below would never trigger.
+                with contextlib.suppress(Exception):
+                    await sandbox.fs.delete_file(REMOTE_RESULT)
+
                 if attempt == 1:
                     prompt, resume = base_prompt, False
                 else:
@@ -1029,8 +1057,41 @@ beta_weighted_shock | sector_exposure_map | correlation_contagion.
                 exit_code = await self._run_codex(sandbox, session_id, cmd, deadline)
                 await self.emit_log("stdout", f"[orchestrator] codex exited {exit_code}")
 
+                # Retrying an auth failure just burns the clock -- fail loudly instead.
+                if exit_code != 0 and self.state.auth_suspect:
+                    msg = (
+                        "Codex could not authenticate inside the sandbox. The transplanted "
+                        f"ChatGPT auth.json was rejected. Evidence: {self.state.auth_evidence!r}. "
+                        "There is no API-key fallback: re-run `codex login` on the host to "
+                        "refresh ~/.codex/auth.json, and confirm chatgpt.com / auth.openai.com "
+                        "are reachable from the sandbox (domain allow list)."
+                    )
+                    await self.emit_state("rejected", error="auth", message=msg)
+                    raise RuntimeError(msg)
+
                 await self.emit_state("verifying")
                 result, err = await self._download_result(sandbox)
+
+                # `--output-schema` is not yet proven to survive `exec resume`. If a
+                # resume produced no result.json, fall back to a fresh `codex exec` with
+                # the failure list folded into the full task prompt rather than aborting.
+                if result is None and resume:
+                    await self.emit_tool(
+                        "SYSTEM", "resume produced no result.json",
+                        detail="falling back to fresh codex exec", status="fail",
+                        body=err or "",
+                    )
+                    fallback_prompt = (
+                        f"{self._build_prompt(news, portfolio, attempt)}\n\n"
+                        f"{self._retry_prompt(last_report, attempt)}"
+                    )
+                    fallback_cmd = self._codex_cmd(fallback_prompt, resume=False)
+                    exit_code = await self._run_codex(sandbox, session_id, fallback_cmd, deadline)
+                    await self.emit_log(
+                        "stdout", f"[orchestrator] fallback codex exec exited {exit_code}"
+                    )
+                    result, err = await self._download_result(sandbox)
+
                 sandbox_hash = await self._sandbox_schema_hash(sandbox)
                 local_schema_hash = _sha256_bytes(SCHEMA_PATH.read_bytes())
 
