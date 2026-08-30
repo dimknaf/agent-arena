@@ -951,7 +951,7 @@ function buildCascade(i, animate){
        <span class="vl">${s.pct != null ? fmtPct(s.pct) : fmtBig(s.val)}
          ${s.sfx ? `<span class="sfx">${esc(s.sfx)}</span>` : ''}</span>`);
     if(s.fin) r.querySelector('.vl').style.color = s.pct < 0 ? 'var(--red)' : 'var(--green)';
-    r.style.animationDelay = (animate ? k * 300 : 0) / SPEED + 'ms';
+    if(animate){ r.classList.add('pend'); after(k * 300 + 40, () => r.classList.remove('pend')); }
     r.onclick = () => {
       box.querySelectorAll('.csr').forEach(x => x.classList.remove('on'));
       r.classList.add('on');
@@ -1099,7 +1099,9 @@ function openAct2(d){
 
   $('#grid').classList.remove('back'); $('#hud').classList.remove('back');
   $('#grid').classList.add('away');    $('#hud').classList.add('away');
-  $('#act2').hidden = false; $('#act2').classList.remove('closing');
+  const a2 = $('#act2');
+  a2.hidden = false; a2.classList.remove('closing'); a2.classList.add('pre');
+  requestAnimationFrame(() => requestAnimationFrame(() => a2.classList.remove('pre')));
 
   const order = d.positions.slice().sort((a,b) => {
     const za = Math.abs(band(a,'long_term').base) < 1e-9, zb = Math.abs(band(b,'long_term').base) < 1e-9;
@@ -1173,15 +1175,15 @@ function dealCards(order, d, hzs){
        ${dv ? `<span class="cFlagS ${dv.cls}">${dv.txt}</span>` : ''}
        <div class="cNil">no material exposure</div>
        ${fanHTML(p, hzs)}
-       <div class="cMath"><em>w</em> ${num(p.weight_pct,0).toFixed(2)}% <em>×</em> ${fmtPct(b.base)} <em>=</em> ${((num(p.weight_pct,0)/100)*b.base).toFixed(2)}pp</div>
-       <div class="cCite">${cite ? '&#128279; ' + esc(host(cite.url)) : ''}</div>`);
-    c.style.animationDelay = (i * 190 / SPEED) + 'ms';
+       <div class="cMath"><em>w</em> ${num(p.weight_pct,0).toFixed(2)}% <em>×</em> ${fmtPct(b.base)} <em>=</em> ${((num(p.weight_pct,0)/100)*b.base).toFixed(2)}pp${cite ? ' <em>·</em> &#128279;' : ''}</div>`);
+    c.classList.add('pend');
+    after(i * 170 + 40, () => c.classList.remove('pend'));
     c.dataset.ticker = p.ticker;
     c.style.borderLeftColor = zero ? 'var(--surface2)' : impactColor(b.base);
     c.querySelector('.cImp').style.color = zero ? 'var(--overlay)' : impactColor(b.base);
     c.onclick = () => { buildCascade(i, true); openDetail(i); };
     box.appendChild(c); A2.cards.push(c);
-    after(i * 190 + 260, () => paintFans(c, p, hzs));
+    after(i * 170 + 240, () => paintFans(c, p, hzs));
   });
 }
 
@@ -1191,8 +1193,10 @@ function buildFall(order, d, instant){
   if(!A2.fall){
     A2.fall = echarts.init(el2, null, {renderer:'canvas'});
     A2.fall.on('click', p => {
-      const i = A2.order.findIndex(o => o.ticker === p.name);
-      if(i >= 0){ buildCascade(i, true); selectCard(i, true); }
+      // custom series: category index lives in value[0], not params.name
+      const idx = Array.isArray(p.value) ? p.value[0] : -1;
+      const i = idx > 0 ? idx - 1 : A2.order.findIndex(o => o.ticker === p.name);
+      if(i >= 0 && i < A2.order.length){ buildCascade(i, true); selectCard(i, true); }
     });
   }
   const cats = ['START'].concat(order.map(p => p.ticker)).concat(['Σ BOOK']);
@@ -1202,22 +1206,46 @@ function buildFall(order, d, instant){
   });
   const tot = cb.reduce((a,x) => ({low:a.low+x.low, base:a.base+x.base, high:a.high+x.high}), {low:0,base:0,high:0});
 
-  const base = [0], val = [0], col = ['transparent'], whisk = [];
+  /* Bars are drawn with a custom renderItem, NOT two stacked bar series:
+     ECharts stacks positive and negative values on separate stacks, which
+     silently flips any bar whose running total crosses zero. */
+  const bars = [], whisk = [];
   let run = 0;
   cb.forEach((c, i) => {
     const from = run, to = run + c.base;
-    base.push(Math.min(from, to)); val.push(Math.abs(c.base));
-    col.push(Math.abs(c.base) < 1e-9 ? '#45475a' : impactColor(c.base));
+    bars.push({ value:[i + 1, from, to],
+      itemStyle:{ color: Math.abs(c.base) < 1e-9 ? '#45475a' : impactColor(c.base) } });
     whisk.push([i + 1, from + c.low, from + c.high]);
     run = to;
   });
-  base.push(Math.min(0, tot.base)); val.push(Math.abs(tot.base)); col.push('#cba6f7');
+  bars.push({ value:[cats.length - 1, 0, tot.base], itemStyle:{ color:'#cba6f7' } });
   whisk.push([cats.length - 1, Math.min(tot.low, tot.high), Math.max(tot.low, tot.high)]);
 
   const mono = 'JetBrains Mono,monospace';
+  const barRI = (pm, api) => {
+    const x  = api.coord([api.value(0), 0])[0];
+    const y0 = api.coord([0, api.value(1)])[1];
+    const y1 = api.coord([0, api.value(2)])[1];
+    const w  = Math.max(6, api.size([1, 0])[0] * 0.58);
+    return { type:'rect',
+      shape:{ x:x - w/2, y:Math.min(y0, y1), width:w, height:Math.max(2, Math.abs(y1 - y0)) },
+      style: api.style() };
+  };
+  const bandRI = (pm, api) => {
+    const x  = api.coord([api.value(0), 0])[0];
+    const y1 = api.coord([0, api.value(1)])[1];
+    const y2 = api.coord([0, api.value(2)])[1];
+    if(Math.abs(y2 - y1) < 1.5) return { type:'group', children:[] };
+    const st = { stroke:'rgba(205,214,244,.9)', lineWidth:2 };
+    return { type:'group', children:[
+      {type:'line', shape:{x1:x, y1:y1, x2:x, y2:y2}, style:st},
+      {type:'line', shape:{x1:x-7, y1:y1, x2:x+7, y2:y1}, style:st},
+      {type:'line', shape:{x1:x-7, y1:y2, x2:x+7, y2:y2}, style:st}
+    ]};
+  };
   A2.fall.setOption({
     animationDuration: 380, animationEasing:'cubicOut',
-    grid:{left:64, right:16, top:22, bottom:58},
+    grid:{left:62, right:14, top:20, bottom:56},
     xAxis:{ type:'category', data:cats,
       axisLabel:{color:'#a6adc8', fontSize:14, fontFamily:mono, interval:0, rotate:38},
       axisLine:{lineStyle:{color:'rgba(205,214,244,.18)'}}, axisTick:{show:false} },
@@ -1225,42 +1253,27 @@ function buildFall(order, d, instant){
         formatter: v => v.toFixed(1) + '%' },
       splitLine:{lineStyle:{color:'rgba(205,214,244,.07)'}} },
     series:[
-      {name:'b', type:'bar', stack:'w', silent:true, itemStyle:{color:'transparent'}, barWidth:'58%', data:[]},
-      {name:'v', type:'bar', stack:'w', barWidth:'58%', data:[]},
-      /* low–high whisker: the band that must sum to the portfolio band */
-      {name:'band', type:'custom', data:[], z:9, silent:true,
-       renderItem:(pm, api) => {
-         const x  = api.coord([api.value(0), 0])[0];
-         const y1 = api.coord([0, api.value(1)])[1];
-         const y2 = api.coord([0, api.value(2)])[1];
-         const st = {stroke:'rgba(205,214,244,.85)', lineWidth:2};
-         return {type:'group', children:[
-           {type:'line', shape:{x1:x, y1:y1, x2:x, y2:y2}, style:st},
-           {type:'line', shape:{x1:x-8, y1:y1, x2:x+8, y2:y1}, style:st},
-           {type:'line', shape:{x1:x-8, y1:y2, x2:x+8, y2:y2}, style:st}
-         ]};
-       }}
+      {name:'bar',  type:'custom', renderItem:barRI,  data:[], encode:{x:0, y:[1,2]}},
+      {name:'band', type:'custom', renderItem:bandRI, data:[], z:9, silent:true, encode:{x:0, y:[1,2]}}
     ]
-  });
+  }, {replaceMerge:['series']});
 
-  const paintTo = k => {
-    const dv = val.slice(0, k).map((v, i) => ({ value:v, itemStyle:{ color:col[i], borderRadius:3 } }));
-    A2.fall.setOption({ series:[{data:base.slice(0,k)}, {data:dv}, {data:whisk.slice(0, Math.max(0, k-1))}] });
-  };
+  const paintTo = k => A2.fall.setOption({
+    series:[{ data: bars.slice(0, k) }, { data: whisk.slice(0, k) }] });
   const setRun = v => {
     const r = $('#a2running');
     r.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
     r.style.color = v < 0 ? 'var(--red)' : 'var(--green)';
   };
 
-  if(instant){ paintTo(base.length); setRun(tot.base); return; }
+  if(instant){ paintTo(bars.length); setRun(tot.base); return; }
   let k = 0, shown = 0;
   const tick = () => {
     k++; paintTo(k);
-    if(k > 1 && k <= cb.length + 1) shown += cb[k-2].base;
-    if(k === cb.length + 2) shown = tot.base;
+    if(k <= cb.length) shown += cb[k-1].base;
+    if(k === bars.length) shown = tot.base;
     setRun(shown);
-    if(k < base.length) after(210, tick);
+    if(k < bars.length) after(200, tick);
   };
   after(120, tick);
 }
